@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tequila_cluster}
+      POSTGRES_USER: ${POSTGRES_USER:-tequila_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - tequila_cluster_db_data:/var/lib/postgresql/data
+      - ./src/main/resources/sql/DDL_Tequila_Traceability.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
+      - ./src/main/resources/sql/seed_reference_data.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tequila_admin} -d ${POSTGRES_DB:-tequila_cluster}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVER_PORT: ${SERVER_PORT:-8080}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-tequila_cluster}
+      DB_USERNAME: ${POSTGRES_USER:-tequila_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      JWT_SECRET: ${JWT_SECRET:-change_me_to_a_long_random_string}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-60}
+      PLANT_MAX_CAPACITY_KG: ${PLANT_MAX_CAPACITY_KG:-50000}
+      RETENTION_YEARS: ${RETENTION_YEARS:-5}
+    ports:
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
+    restart: unless-stopped
+
+volumes:
+  tequila_cluster_db_data:
