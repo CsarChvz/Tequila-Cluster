@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   AppShell,
   Group,
@@ -22,8 +22,8 @@ import {
   Alert,
   Tooltip,
   ThemeIcon,
-  useMantineColorScheme,
   useComputedColorScheme,
+  Center,
 } from "@mantine/core";
 import {
   IconPlant,
@@ -41,26 +41,34 @@ import {
   IconCheck,
   IconAlertTriangle,
   IconLogout,
-  IconLogin,
   IconHome,
+  IconLock,
 } from "@tabler/icons-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { INITIAL_ALERTS } from "@/lib/mockData";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 
 export function AppShellWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout, setSimulatedRole } = useAuth();
+  const router = useRouter();
+  const { user, isAuthenticated, isLoading, logout, setSimulatedRole } = useAuth();
   const computedColorScheme = useComputedColorScheme("dark", { getInitialValueInEffect: true });
 
   const [searchCode, setSearchCode] = useState<string>("");
   const [searchModalOpen, setSearchModalOpen] = useState<boolean>(false);
   const [searchResult, setSearchResult] = useState<any>(null);
 
-  // If we are on public pages (Landing, Login, Register), render standalone without AppShell frame
-  const isPublicPage = ["/landing", "/login", "/register"].includes(pathname);
+  // If on public standalone pages (Landing /, Login /login, Register /register)
+  const isPublicPage = pathname === "/" || pathname === "/login" || pathname === "/register";
+
+  // Redirect unauthenticated user trying to access /dashboard routes
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && pathname.startsWith("/dashboard")) {
+      router.push("/login");
+    }
+  }, [isLoading, isAuthenticated, pathname, router]);
 
   if (isPublicPage) {
     return (
@@ -76,16 +84,36 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // Protection Gate if accessing /dashboard unauthenticated
+  if (!isAuthenticated && pathname.startsWith("/dashboard")) {
+    return (
+      <Center style={{ minHeight: "100vh", padding: "20px" }}>
+        <Card withBorder padding="xl" radius="md" style={{ maxWidth: 420, textAlign: "center" }}>
+          <ThemeIcon color="red" size={48} radius="md" mb="md" mx="auto">
+            <IconLock size={28} />
+          </ThemeIcon>
+          <Title order={3} mb="xs">Acceso Restringido (JWT Required)</Title>
+          <Text size="sm" c="dimmed" mb="lg">
+            Debes iniciar sesión con una cuenta de operador para acceder al Dashboard y módulos de producción.
+          </Text>
+          <Button component={Link} href="/login" color="teal" fullWidth>
+            Iniciar Sesión
+          </Button>
+        </Card>
+      </Center>
+    );
+  }
+
   const currentRole = user?.roles[0] || "Administrator";
 
   const navItems = [
-    { label: "Panel Principal y Trazabilidad", icon: IconReportAnalytics, href: "/", roleAccess: "Todas" },
-    { label: "Jima y Cosecha", icon: IconPlant2, href: "/jima", roleAccess: "Harvest" },
-    { label: "Destilación", icon: IconFlame, href: "/destilacion", roleAccess: "Distillation" },
-    { label: "Envasado y Marbetes", icon: IconBottle, href: "/envasado", roleAccess: "Bottling" },
-    { label: "Logística y Embarques", icon: IconTruckDelivery, href: "/logistica", roleAccess: "Logistics" },
-    { label: "Calidad y Recalls", icon: IconShieldCheck, href: "/calidad", roleAccess: "Quality" },
-    { label: "Auditoría e Historial", icon: IconHistory, href: "/auditoria", roleAccess: "Auditor" },
+    { label: "Panel Principal y Trazabilidad", icon: IconReportAnalytics, href: "/dashboard" },
+    { label: "Jima y Cosecha", icon: IconPlant2, href: "/dashboard/jima" },
+    { label: "Destilación", icon: IconFlame, href: "/dashboard/destilacion" },
+    { label: "Envasado y Marbetes", icon: IconBottle, href: "/dashboard/envasado" },
+    { label: "Logística y Embarques", icon: IconTruckDelivery, href: "/dashboard/logistica" },
+    { label: "Calidad y Recalls", icon: IconShieldCheck, href: "/dashboard/calidad" },
+    { label: "Auditoría e Historial", icon: IconHistory, href: "/dashboard/auditoria" },
   ];
 
   const handleSearch = (e: React.FormEvent) => {
@@ -184,8 +212,8 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
 
             {/* Public Landing Link */}
-            <Tooltip label="Ir a Landing Page Comercial">
-              <ActionIcon component={Link} href="/landing" variant="light" color="teal" size="lg" radius="md">
+            <Tooltip label="Ir al Landing Page">
+              <ActionIcon component={Link} href="/" variant="light" color="teal" size="lg" radius="md">
                 <IconHome size={20} />
               </ActionIcon>
             </Tooltip>
