@@ -12,7 +12,6 @@ import {
   Badge,
   Box,
   SimpleGrid,
-  useComputedColorScheme,
 } from "@mantine/core";
 import {
   IconPlant,
@@ -29,17 +28,15 @@ import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function RootLandingPage() {
-  const computedColorScheme = useComputedColorScheme("dark", { getInitialValueInEffect: true });
-
   return (
-    <Box style={{ minHeight: "100vh" }}>
+    <Box style={{ minHeight: "100vh", backgroundColor: "var(--mantine-color-body)", color: "var(--mantine-color-text)" }}>
       {/* Top Header */}
       <Box
         component="header"
         py="md"
         px="lg"
         style={{
-          borderBottom: computedColorScheme === "dark" ? "1px solid #283747" : "1px solid #dee2e6",
+          borderBottom: "1px solid var(--mantine-color-default-border)",
           backdropFilter: "blur(10px)",
         }}
       >
@@ -185,7 +182,7 @@ export default function RootLandingPage() {
       </Container>
 
       {/* Compliance & Security Banner */}
-      <Box py={60} bg={computedColorScheme === "dark" ? "#1a242d" : "#f1f3f5"}>
+      <Box py={60} style={{ backgroundColor: "var(--mantine-color-default-hover)" }}>
         <Container size="lg">
           <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
             <Group gap="sm" wrap="nowrap">
@@ -222,7 +219,7 @@ export default function RootLandingPage() {
       </Box>
 
       {/* Footer */}
-      <Box py="lg" style={{ textAlign: "center", borderTop: "1px solid rgba(0,0,0,0.1)" }}>
+      <Box py="lg" style={{ textAlign: "center", borderTop: "1px solid var(--mantine-color-default-border)" }}>
         <Text size="xs" c="dimmed">
           © 2026 Tequilera José Cuervo — Proyecto de curso UNIVA (Marcos de Trabajo).
         </Text>

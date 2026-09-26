@@ -22,7 +22,6 @@ import {
   Alert,
   Tooltip,
   ThemeIcon,
-  useComputedColorScheme,
   Center,
 } from "@mantine/core";
 import {
@@ -54,7 +53,6 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, setSimulatedRole } = useAuth();
-  const computedColorScheme = useComputedColorScheme("dark", { getInitialValueInEffect: true });
 
   const [searchCode, setSearchCode] = useState<string>("");
   const [searchModalOpen, setSearchModalOpen] = useState<boolean>(false);
@@ -74,8 +72,8 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
     return (
       <Box
         style={{
-          backgroundColor: computedColorScheme === "dark" ? "#141e26" : "#f8f9fa",
-          color: computedColorScheme === "dark" ? "#f1f3f5" : "#212529",
+          backgroundColor: "var(--mantine-color-body)",
+          color: "var(--mantine-color-text)",
           minHeight: "100vh",
         }}
       >
@@ -167,9 +165,9 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
       {/* Header */}
       <AppShell.Header
         style={{
-          backgroundColor: computedColorScheme === "dark" ? "#152028" : "#ffffff",
-          borderBottom: computedColorScheme === "dark" ? "2px solid #ffb300" : "2px solid #098785",
-          color: computedColorScheme === "dark" ? "#ffffff" : "#1a252c",
+          backgroundColor: "var(--mantine-color-body)",
+          borderBottom: "2px solid var(--mantine-color-teal-filled)",
+          color: "var(--mantine-color-text)",
         }}
       >
         <Group h="100%" px="md" justify="space-between">
@@ -181,7 +179,7 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
               <Title
                 order={4}
                 style={{
-                  color: computedColorScheme === "dark" ? "#ffc107" : "#098785",
+                  color: "var(--mantine-color-teal-filled)",
                   fontFamily: "Playfair Display, serif",
                   lineHeight: 1.1,
                 }}
@@ -265,7 +263,7 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
                   style={{
                     padding: "4px 8px",
                     borderRadius: "6px",
-                    backgroundColor: computedColorScheme === "dark" ? "#24323e" : "#e9ecef",
+                    backgroundColor: "var(--mantine-color-default-hover)",
                   }}
                 >
                   <Group gap="xs">
@@ -316,8 +314,8 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
       <AppShell.Navbar
         p="xs"
         style={{
-          backgroundColor: computedColorScheme === "dark" ? "#19242d" : "#f8f9fa",
-          borderRight: computedColorScheme === "dark" ? "1px solid #2d3e4e" : "1px solid #dee2e6",
+          backgroundColor: "var(--mantine-color-body)",
+          borderRight: "1px solid var(--mantine-color-default-border)",
         }}
       >
         <Text size="xs" fw={700} c="dimmed" tt="uppercase" px="xs" py="xs" style={{ letterSpacing: "0.5px" }}>
@@ -351,8 +349,8 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
             padding="xs"
             radius="md"
             style={{
-              backgroundColor: computedColorScheme === "dark" ? "#10181f" : "#ffffff",
-              border: computedColorScheme === "dark" ? "1px solid #283747" : "1px solid #dee2e6",
+              backgroundColor: "var(--mantine-color-default-hover)",
+              border: "1px solid var(--mantine-color-default-border)",
             }}
           >
             <Group justify="space-between">
@@ -369,8 +367,8 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <AppShell.Main
         style={{
-          backgroundColor: computedColorScheme === "dark" ? "#141e26" : "#f8f9fa",
-          color: computedColorScheme === "dark" ? "#f1f3f5" : "#212529",
+          backgroundColor: "var(--mantine-color-body)",
+          color: "var(--mantine-color-text)",
           minHeight: "calc(100vh - 64px)",
         }}
       >
