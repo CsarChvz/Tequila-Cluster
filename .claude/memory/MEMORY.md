@@ -1,0 +1,4 @@
+- [Proyecto Tequila Cluster](project_tequila_cluster.md) — qué es, deadline, equipo, fuente de verdad
+- [Arquitectura en capas planas](architecture_layers.md) — decisión de estructura de paquetes y docker
+- [Limitación: diagramas UML no rasterizables](diagrams_limitation.md) — por qué no se vieron los PDF visualmente
+- [Fuentes de referencia](reference_sources.md) — rutas a ERS, diagramas, DDL, reportes TODO
