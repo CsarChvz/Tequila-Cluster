@@ -39,4 +39,5 @@ export const theme = createTheme({
     fontFamily: "Playfair Display, Georgia, serif",
   },
   defaultRadius: "md",
+  cursorType: "pointer",
 });

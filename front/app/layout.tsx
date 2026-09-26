@@ -7,6 +7,7 @@ import {
 } from "@mantine/core";
 import { theme } from "../theme";
 import { AppShellWrapper } from "@/components/AppShellWrapper";
+import { AuthProvider } from "@/context/AuthContext";
 
 export const metadata = {
   title: "Tequila Cluster — Sistema de Trazabilidad (José Cuervo)",
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" {...mantineHtmlProps}>
       <head>
-        <ColorSchemeScript />
+        <ColorSchemeScript defaultColorScheme="dark" />
         <link rel="shortcut icon" href="/favicon.svg" />
         <meta
           name="viewport"
@@ -25,8 +26,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <MantineProvider theme={theme}>
-          <AppShellWrapper>{children}</AppShellWrapper>
+        <MantineProvider theme={theme} defaultColorScheme="dark">
+          <AuthProvider>
+            <AppShellWrapper>{children}</AppShellWrapper>
+          </AuthProvider>
         </MantineProvider>
       </body>
     </html>

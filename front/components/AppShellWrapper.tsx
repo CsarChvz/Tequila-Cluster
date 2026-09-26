@@ -22,6 +22,8 @@ import {
   Alert,
   Tooltip,
   ThemeIcon,
+  useMantineColorScheme,
+  useComputedColorScheme,
 } from "@mantine/core";
 import {
   IconPlant,
@@ -38,19 +40,43 @@ import {
   IconChevronRight,
   IconCheck,
   IconAlertTriangle,
-  IconMapPin,
-  IconBuildingWarehouse,
+  IconLogout,
+  IconLogin,
+  IconHome,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { INITIAL_ALERTS } from "@/lib/mockData";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAuth } from "@/context/AuthContext";
 
 export function AppShellWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [currentRole, setCurrentRole] = useState<string>("Administrator");
+  const { user, logout, setSimulatedRole } = useAuth();
+  const computedColorScheme = useComputedColorScheme("dark", { getInitialValueInEffect: true });
+
   const [searchCode, setSearchCode] = useState<string>("");
   const [searchModalOpen, setSearchModalOpen] = useState<boolean>(false);
   const [searchResult, setSearchResult] = useState<any>(null);
+
+  // If we are on public pages (Landing, Login, Register), render standalone without AppShell frame
+  const isPublicPage = ["/landing", "/login", "/register"].includes(pathname);
+
+  if (isPublicPage) {
+    return (
+      <Box
+        style={{
+          backgroundColor: computedColorScheme === "dark" ? "#141e26" : "#f8f9fa",
+          color: computedColorScheme === "dark" ? "#f1f3f5" : "#212529",
+          minHeight: "100vh",
+        }}
+      >
+        {children}
+      </Box>
+    );
+  }
+
+  const currentRole = user?.roles[0] || "Administrator";
 
   const navItems = [
     { label: "Panel Principal y Trazabilidad", icon: IconReportAnalytics, href: "/", roleAccess: "Todas" },
@@ -66,7 +92,6 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
     e.preventDefault();
     if (!searchCode.trim()) return;
     
-    // Simulate backward & forward traceability lookup
     const code = searchCode.trim().toUpperCase();
     setSearchResult({
       code,
@@ -112,14 +137,27 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
       padding="md"
     >
       {/* Header */}
-      <AppShell.Header style={{ backgroundColor: "#1a252c", borderBottom: "2px solid #ffb300", color: "#fff" }}>
+      <AppShell.Header
+        style={{
+          backgroundColor: computedColorScheme === "dark" ? "#152028" : "#ffffff",
+          borderBottom: computedColorScheme === "dark" ? "2px solid #ffb300" : "2px solid #098785",
+          color: computedColorScheme === "dark" ? "#ffffff" : "#1a252c",
+        }}
+      >
         <Group h="100%" px="md" justify="space-between">
           <Group gap="sm">
-            <ThemeIcon color="amber" variant="filled" size="lg" radius="md">
-              <IconPlant size={22} color="#1a252c" />
+            <ThemeIcon color="teal" variant="filled" size="lg" radius="md">
+              <IconPlant size={22} />
             </ThemeIcon>
             <Box>
-              <Title order={4} style={{ color: "#ffc107", fontFamily: "Playfair Display, serif", lineHeight: 1.1 }}>
+              <Title
+                order={4}
+                style={{
+                  color: computedColorScheme === "dark" ? "#ffc107" : "#098785",
+                  fontFamily: "Playfair Display, serif",
+                  lineHeight: 1.1,
+                }}
+              >
                 TEQUILA CLUSTER
               </Title>
               <Text size="xs" c="dimmed" style={{ letterSpacing: "1px", textTransform: "uppercase" }}>
@@ -129,29 +167,33 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
           </Group>
 
           {/* Quick Traceability Search Bar */}
-          <form onSubmit={handleSearch} style={{ width: "340px" }}>
+          <form onSubmit={handleSearch} style={{ width: "320px" }}>
             <TextInput
-              placeholder="Buscar código TRZ-YYYY-NNNNN o Folio SAT..."
+              placeholder="Buscar código TRZ-YYYY-NNNNN..."
               leftSection={<IconSearch size={16} />}
               value={searchCode}
               onChange={(e) => setSearchCode(e.currentTarget.value)}
               size="sm"
               radius="md"
-              styles={{
-                input: {
-                  backgroundColor: "#2c3b47",
-                  color: "#ffffff",
-                  borderColor: "#3e5264",
-                }
-              }}
             />
           </form>
 
-          {/* Role selector & Notifications */}
-          <Group gap="md">
-            <Menu shadow="md" width={220}>
+          {/* Header Action Tools */}
+          <Group gap="sm">
+            {/* Dark / Light Mode Toggle */}
+            <ThemeToggle />
+
+            {/* Public Landing Link */}
+            <Tooltip label="Ir a Landing Page Comercial">
+              <ActionIcon component={Link} href="/landing" variant="light" color="teal" size="lg" radius="md">
+                <IconHome size={20} />
+              </ActionIcon>
+            </Tooltip>
+
+            {/* Notifications */}
+            <Menu shadow="md" width={240}>
               <Menu.Target>
-                <Tooltip label="Alerta Activas de Proceso">
+                <Tooltip label="Alertas Activas de Proceso">
                   <ActionIcon variant="light" color="amber" size="lg" radius="md" style={{ position: "relative" }}>
                     <IconBell size={20} />
                     {activeAlertsCount > 0 && (
@@ -188,19 +230,26 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
               </Menu.Dropdown>
             </Menu>
 
+            {/* User Role Switcher & Profile */}
             <Menu shadow="md" width={240}>
               <Menu.Target>
-                <UnstyledButton style={{ padding: "4px 8px", borderRadius: "6px", backgroundColor: "#2c3b47" }}>
+                <UnstyledButton
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    backgroundColor: computedColorScheme === "dark" ? "#24323e" : "#e9ecef",
+                  }}
+                >
                   <Group gap="xs">
                     <Avatar color="amber" radius="xl" size="sm">
                       <IconUserCheck size={16} />
                     </Avatar>
                     <Box style={{ textAlign: "left" }}>
-                      <Text size="xs" fw={700} c="white">
-                        Rol: {currentRole}
+                      <Text size="xs" fw={700}>
+                        {user ? user.username : "Operador"}
                       </Text>
-                      <Text size="10px" c="amber">
-                        Cambiar permisos
+                      <Text size="10px" c="teal" fw={600}>
+                        {currentRole}
                       </Text>
                     </Box>
                   </Group>
@@ -208,7 +257,7 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
               </Menu.Target>
 
               <Menu.Dropdown>
-                <Menu.Label>Seleccionar Rol Simulado (RBAC FR-02)</Menu.Label>
+                <Menu.Label>Cambiar Rol Simulado (RBAC FR-02)</Menu.Label>
                 {[
                   "Administrator",
                   "Jima Operator",
@@ -219,12 +268,16 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
                 ].map((role) => (
                   <Menu.Item
                     key={role}
-                    onClick={() => setCurrentRole(role)}
-                    rightSection={currentRole === role ? <IconCheck size={14} color="#4bcbc9" /> : null}
+                    onClick={() => setSimulatedRole(role)}
+                    rightSection={currentRole === role ? <IconCheck size={14} color="#098785" /> : null}
                   >
                     {role}
                   </Menu.Item>
                 ))}
+                <Menu.Divider />
+                <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={logout}>
+                  Cerrar Sesión (JWT)
+                </Menu.Item>
               </Menu.Dropdown>
             </Menu>
           </Group>
@@ -232,7 +285,13 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
       </AppShell.Header>
 
       {/* Navbar */}
-      <AppShell.Navbar p="xs" style={{ backgroundColor: "#1e2c37", borderRight: "1px solid #2d3e4e" }}>
+      <AppShell.Navbar
+        p="xs"
+        style={{
+          backgroundColor: computedColorScheme === "dark" ? "#19242d" : "#f8f9fa",
+          borderRight: computedColorScheme === "dark" ? "1px solid #2d3e4e" : "1px solid #dee2e6",
+        }}
+      >
         <Text size="xs" fw={700} c="dimmed" tt="uppercase" px="xs" py="xs" style={{ letterSpacing: "0.5px" }}>
           Módulos de Producción
         </Text>
@@ -246,17 +305,12 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
                 component={Link}
                 href={item.href}
                 label={item.label}
-                leftSection={<Icon size={20} color={isActive ? "#ffc107" : "#a6b7c6"} />}
+                leftSection={<Icon size={20} color={isActive ? "#098785" : "gray"} />}
                 active={isActive}
                 styles={{
                   root: {
                     borderRadius: "8px",
-                    color: isActive ? "#ffffff" : "#c1d1e0",
-                    backgroundColor: isActive ? "#2c3e50" : "transparent",
                     fontWeight: isActive ? 600 : 400,
-                    "&:hover": {
-                      backgroundColor: "#283747",
-                    },
                   },
                 }}
               />
@@ -265,20 +319,33 @@ export function AppShellWrapper({ children }: { children: React.ReactNode }) {
         </Stack>
 
         <Box style={{ marginTop: "auto" }} p="xs">
-          <Card padding="xs" radius="md" style={{ backgroundColor: "#141f27", border: "1px solid #2a3c4a" }}>
+          <Card
+            padding="xs"
+            radius="md"
+            style={{
+              backgroundColor: computedColorScheme === "dark" ? "#10181f" : "#ffffff",
+              border: computedColorScheme === "dark" ? "1px solid #283747" : "1px solid #dee2e6",
+            }}
+          >
             <Group justify="space-between">
-              <Text size="xs" c="dimmed">Status del Sistema</Text>
-              <Badge color="green" size="xs" variant="dot">PostgreSQL Conectado</Badge>
+              <Text size="xs" c="dimmed">Status JWT API</Text>
+              <Badge color="green" size="xs" variant="dot">Spring Boot Ready</Badge>
             </Group>
-            <Text size="11px" c="gray.4" mt="4px">
-              Fecha límite entrega: 2026-09-29
+            <Text size="11px" c="dimmed" mt="4px">
+              Token: {user ? "Sesión Activa" : "Invitado"}
             </Text>
           </Card>
         </Box>
       </AppShell.Navbar>
 
       {/* Main Content */}
-      <AppShell.Main style={{ backgroundColor: "#f8f9fa", minHeight: "calc(100vh - 64px)" }}>
+      <AppShell.Main
+        style={{
+          backgroundColor: computedColorScheme === "dark" ? "#141e26" : "#f8f9fa",
+          color: computedColorScheme === "dark" ? "#f1f3f5" : "#212529",
+          minHeight: "calc(100vh - 64px)",
+        }}
+      >
         {children}
       </AppShell.Main>
 
