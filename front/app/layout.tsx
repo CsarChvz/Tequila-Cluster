@@ -6,15 +6,16 @@ import {
   mantineHtmlProps,
 } from "@mantine/core";
 import { theme } from "../theme";
+import { AppShellWrapper } from "@/components/AppShellWrapper";
 
 export const metadata = {
-  title: "Mantine Next.js template",
-  description: "I am using Mantine with Next.js!",
+  title: "Tequila Cluster — Sistema de Trazabilidad (José Cuervo)",
+  description: "Sistema web de trazabilidad de tequila para Jima, Destilación, Envasado y Logística",
 };
 
-export default function RootLayout({ children }: { children: any }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" {...mantineHtmlProps}>
+    <html lang="es" {...mantineHtmlProps}>
       <head>
         <ColorSchemeScript />
         <link rel="shortcut icon" href="/favicon.svg" />
@@ -24,7 +25,9 @@ export default function RootLayout({ children }: { children: any }) {
         />
       </head>
       <body>
-        <MantineProvider theme={theme}>{children}</MantineProvider>
+        <MantineProvider theme={theme}>
+          <AppShellWrapper>{children}</AppShellWrapper>
+        </MantineProvider>
       </body>
     </html>
   );
