@@ -533,7 +533,7 @@ CREATE TABLE audit_log (
     entity_id       uuid,
     before_data     jsonb,
     after_data      jsonb,
-    ip_address      inet,
+    ip_address      varchar(255),
     occurred_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -549,5 +549,7 @@ CREATE INDEX idx_shipment_item_batch ON shipment_item(bottling_batch_id);
 CREATE INDEX idx_inventory_batch_location ON inventory_movement(bottling_batch_id, location_id);
 CREATE INDEX idx_alert_open ON process_alert(resolved_at) WHERE resolved_at IS NULL;
 CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id, occurred_at DESC);
+
+DROP TABLE IF EXISTS audit_log CASCADE;
 
 COMMIT;
