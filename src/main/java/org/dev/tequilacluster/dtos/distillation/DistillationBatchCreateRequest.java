@@ -5,27 +5,34 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
+
 /**
- * TODO(dev-a): shape this to match FR-13/FR-14/FR-19 once the service is implemented — this is
- * a starting point, not a final contract. {@code sourceHarvestBatches} feeds RB-201
- * (batch_lineage: which harvest batches, how much of each, in what unit).
+ * FR-13/FR-14/FR-19 Request
  */
 public record DistillationBatchCreateRequest(
-        List<HarvestLineageItem> sourceHarvestBatches,
-        LocalDate distillationDate,
-        BigDecimal totalDistilledVolumeL,
-        BigDecimal headsVolumeL,
-        BigDecimal heartsVolumeL,
-        BigDecimal tailsVolumeL,
-        BigDecimal alcoholContentPct,
+        @NotEmpty List<HarvestLineageItem> sourceHarvestBatches,
+        @NotNull LocalDate distillationDate,
+        @NotNull @PositiveOrZero BigDecimal totalDistilledVolumeL,
+        @NotNull @PositiveOrZero BigDecimal headsVolumeL,
+        @NotNull @PositiveOrZero BigDecimal heartsVolumeL,
+        @NotNull @PositiveOrZero BigDecimal tailsVolumeL,
+        @NotNull @PositiveOrZero BigDecimal alcoholContentPct,
         BigDecimal cookingTemperatureC,
         BigDecimal fermentationPh,
-        BigDecimal actualYieldL,
+        @NotNull @PositiveOrZero BigDecimal actualYieldL,
         boolean maturationRequired,
         LocalDate maturationStartDate,
         Integer requiredMaturationDays,
         String notes
 ) {
-    public record HarvestLineageItem(UUID harvestBatchId, BigDecimal quantityUsed, String unit) {
-    }
+    public record HarvestLineageItem(
+            @NotNull UUID harvestBatchId, 
+            @NotNull @Positive BigDecimal quantityUsed, 
+            @NotNull @NotBlank String unit
+    ) {}
 }
