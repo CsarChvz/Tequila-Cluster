@@ -11,9 +11,9 @@ import java.util.UUID;
 /** FR-03/RB-504: permisos view/create/update/complete por rol+etapa. */
 public interface RoleStagePermissionRepository extends JpaRepository<RoleStagePermission, RoleStagePermissionId> {
 
-    List<RoleStagePermission> findByRoleId(UUID roleId);
+    List<RoleStagePermission> findByIdRoleId(UUID roleId);
 
-    List<RoleStagePermission> findByStageCode(String stageCode);
+    List<RoleStagePermission> findByIdStageCode(String stageCode);
 
-    Optional<RoleStagePermission> findByRoleIdAndStageCode(UUID roleId, String stageCode);
+    Optional<RoleStagePermission> findByIdRoleIdAndIdStageCode(UUID roleId, String stageCode);
 }
