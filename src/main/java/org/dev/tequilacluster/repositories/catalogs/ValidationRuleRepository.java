@@ -10,10 +10,10 @@ import java.util.UUID;
 /** RB-103/203/204/207: reglas configurables de rango/tolerancia por etapa+parámetro. */
 public interface ValidationRuleRepository extends JpaRepository<ValidationRule, UUID> {
 
-    List<ValidationRule> findByStageCodeAndActiveTrue(String stageCode);
+    List<ValidationRule> findByProcessStageCodeAndActiveTrue(String stageCode);
 
     /** Regla vigente de un parámetro para una etapa (valid_to null o futuro). */
-    Optional<ValidationRule> findByStageCodeAndParameterCodeAndActiveTrue(String stageCode, String parameterCode);
+    Optional<ValidationRule> findByProcessStageCodeAndParameterCodeAndActiveTrue(String stageCode, String parameterCode);
 
-    List<ValidationRule> findByStageCode(String stageCode);
+    List<ValidationRule> findByProcessStageCode(String stageCode);
 }

@@ -37,7 +37,7 @@ public class BottlingBatch {
 
     @Id
     @Column(name = "batch_id")
-    private UUID batchId;
+    private UUID id;
 
     @OneToOne(fetch = FetchType.LAZY)
     @MapsId

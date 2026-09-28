@@ -53,7 +53,8 @@ public class AuditLog {
     @Column(name = "after_data", columnDefinition = "jsonb")
     private String afterData;
 
-    @Column(name = "ip_address")
+    // Dentro de tu entidad AuditLog.java
+    @Column(name = "ip_address", columnDefinition = "inet")
     private String ipAddress;
 
     @Column(name = "occurred_at", nullable = false)

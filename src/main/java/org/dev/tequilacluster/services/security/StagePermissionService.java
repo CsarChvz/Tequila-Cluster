@@ -42,7 +42,7 @@ public class StagePermissionService {
     private boolean roleAllows(String roleCode, String stageCode, StageAction action) {
         return roleRepository.findByCode(roleCode)
                 .map(Role::getId)
-                .flatMap(roleId -> roleStagePermissionRepository.findByRoleIdAndStageCode(roleId, stageCode))
+                .flatMap(roleId -> roleStagePermissionRepository.findByIdRoleIdAndIdStageCode(roleId, stageCode))
                 .map(permission -> switch (action) {
                     case VIEW -> Boolean.TRUE.equals(permission.getCanView());
                     case CREATE -> Boolean.TRUE.equals(permission.getCanCreate());
