@@ -9,9 +9,9 @@ import java.util.UUID;
 /** FR-29/RB-402: documentos cargados por embarque; validez requerida antes de salir de PLANNED. */
 public interface ShipmentDocumentRepository extends JpaRepository<ShipmentDocument, UUID> {
 
-    List<ShipmentDocument> findByShipmentId(UUID shipmentId);
+    List<ShipmentDocument> findByShipment_Id(UUID shipmentId);
 
-    List<ShipmentDocument> findByShipmentIdAndValidTrue(UUID shipmentId);
+    List<ShipmentDocument> findByShipment_IdAndValidTrue(UUID shipmentId);
 
-    List<ShipmentDocument> findByDocumentTypeId(UUID documentTypeId);
+    List<ShipmentDocument> findByDocumentType_Id(UUID documentTypeId);
 }

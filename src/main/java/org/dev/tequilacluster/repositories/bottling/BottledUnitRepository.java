@@ -1,7 +1,10 @@
 package org.dev.tequilacluster.repositories.bottling;
 
 import org.dev.tequilacluster.models.bottling.BottledUnit;
+import org.dev.tequilacluster.models.bottling.enums.BottledUnitStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -12,11 +15,19 @@ public interface BottledUnitRepository extends JpaRepository<BottledUnit, UUID> 
 
     Optional<BottledUnit> findByUnitCode(String unitCode);
 
-    Optional<BottledUnit> findByTaxLabelId(UUID taxLabelId);
+    Optional<BottledUnit> findByTaxLabel_Id(UUID taxLabelId);
 
-    List<BottledUnit> findByBottlingBatchIdAndStatus(UUID bottlingBatchId, String status);
+    List<BottledUnit> findByBottlingBatch_Id(UUID bottlingBatchId);
 
-    long countByBottlingBatchIdAndStatus(UUID bottlingBatchId, String status);
+    List<BottledUnit> findByBottlingBatch_IdAndStatus(UUID bottlingBatchId, BottledUnitStatus status);
+
+    long countByBottlingBatch_IdAndStatus(UUID bottlingBatchId, BottledUnitStatus status);
+
+    @Query("SELECT u FROM BottledUnit u WHERE u.bottlingBatch.id = :bottlingBatchId AND CAST(u.status AS string) = :status")
+    List<BottledUnit> findByBottlingBatchIdAndStatus(@Param("bottlingBatchId") UUID bottlingBatchId, @Param("status") String status);
+
+    @Query("SELECT COUNT(u) FROM BottledUnit u WHERE u.bottlingBatch.id = :bottlingBatchId AND CAST(u.status AS string) = :status")
+    long countByBottlingBatchIdAndStatus(@Param("bottlingBatchId") UUID bottlingBatchId, @Param("status") String status);
 
     boolean existsByUnitCode(String unitCode);
 }

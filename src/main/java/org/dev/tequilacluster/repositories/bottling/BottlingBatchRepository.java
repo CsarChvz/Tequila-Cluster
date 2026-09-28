@@ -12,9 +12,9 @@ public interface BottlingBatchRepository extends JpaRepository<BottlingBatch, UU
 
     Optional<BottlingBatch> findByProductionLotNumber(String productionLotNumber);
 
-    List<BottlingBatch> findByBrandId(UUID brandId);
+    List<BottlingBatch> findByBrand_Id(UUID brandId);
 
-    List<BottlingBatch> findByCategoryId(UUID categoryId);
+    List<BottlingBatch> findByCategory_Id(UUID categoryId);
 
     boolean existsByProductionLotNumber(String productionLotNumber);
 }

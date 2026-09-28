@@ -11,7 +11,7 @@ import java.util.UUID;
 public interface ShipmentTypeRequiredDocumentRepository
         extends JpaRepository<ShipmentTypeRequiredDocument, ShipmentTypeRequiredDocumentId> {
 
-    List<ShipmentTypeRequiredDocument> findByShipmentTypeId(UUID shipmentTypeId);
+    List<ShipmentTypeRequiredDocument> findByShipmentType_Id(UUID shipmentTypeId);
 
-    List<ShipmentTypeRequiredDocument> findByShipmentTypeIdAndRequiredTrue(UUID shipmentTypeId);
+    List<ShipmentTypeRequiredDocument> findByShipmentType_IdAndRequiredTrue(UUID shipmentTypeId);
 }

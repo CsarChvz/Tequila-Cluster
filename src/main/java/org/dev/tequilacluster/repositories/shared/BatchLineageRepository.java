@@ -3,6 +3,8 @@ package org.dev.tequilacluster.repositories.shared;
 import org.dev.tequilacluster.models.shared.BatchLineage;
 import org.dev.tequilacluster.models.shared.BatchLineageId;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.UUID;
@@ -11,8 +13,14 @@ import java.util.UUID;
 public interface BatchLineageRepository extends JpaRepository<BatchLineage, BatchLineageId> {
 
     /** FR-37: trazabilidad hacia atrás — lotes padre que originaron el lote hijo. */
-    List<BatchLineage> findByChildBatchId(UUID childBatchId);
+    List<BatchLineage> findByChildBatch_Id(UUID childBatchId);
+
+    @Query("SELECT bl FROM BatchLineage bl WHERE bl.childBatch.id = :childBatchId")
+    List<BatchLineage> findByChildBatchId(@Param("childBatchId") UUID childBatchId);
 
     /** FR-38: trazabilidad hacia adelante — lotes hijo derivados de un lote padre. */
-    List<BatchLineage> findByParentBatchId(UUID parentBatchId);
+    List<BatchLineage> findByParentBatch_Id(UUID parentBatchId);
+
+    @Query("SELECT bl FROM BatchLineage bl WHERE bl.parentBatch.id = :parentBatchId")
+    List<BatchLineage> findByParentBatchId(@Param("parentBatchId") UUID parentBatchId);
 }

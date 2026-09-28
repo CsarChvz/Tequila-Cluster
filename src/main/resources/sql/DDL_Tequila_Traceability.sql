@@ -550,6 +550,5 @@ CREATE INDEX idx_inventory_batch_location ON inventory_movement(bottling_batch_i
 CREATE INDEX idx_alert_open ON process_alert(resolved_at) WHERE resolved_at IS NULL;
 CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id, occurred_at DESC);
 
-DROP TABLE IF EXISTS audit_log CASCADE;
-
 COMMIT;
+

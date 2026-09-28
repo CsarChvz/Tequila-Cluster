@@ -10,7 +10,7 @@ import java.util.UUID;
 /** FR-34: unidades embotelladas individuales afectadas por un recall parcial. */
 public interface RecallUnitRepository extends JpaRepository<RecallUnit, RecallUnitId> {
 
-    List<RecallUnit> findByRecallId(UUID recallId);
+    List<RecallUnit> findByRecall_Id(UUID recallId);
 
-    List<RecallUnit> findByBottledUnitId(UUID bottledUnitId);
+    List<RecallUnit> findByBottledUnit_Id(UUID bottledUnitId);
 }
