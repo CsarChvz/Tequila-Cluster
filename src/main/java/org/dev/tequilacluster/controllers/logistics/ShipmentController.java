@@ -2,9 +2,11 @@ package org.dev.tequilacluster.controllers.logistics;
 
 import jakarta.validation.Valid;
 import org.dev.tequilacluster.dtos.logistics.ShipmentCreateRequest;
+import org.dev.tequilacluster.dtos.logistics.ShipmentDelayCheckResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentCreateRequest;
 import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentResponse;
+import org.dev.tequilacluster.dtos.shared.CancelRequest;
 import org.dev.tequilacluster.services.logistics.ShipmentService;
 import org.dev.tequilacluster.services.security.StagePermissionService;
 import org.dev.tequilacluster.utils.security.AppUserPrincipal;
@@ -71,6 +73,23 @@ public class ShipmentController {
                                                          @AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
         ShipmentResponse response = shipmentService.startTransit(id, principal.getUserId());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ShipmentResponse> cancel(@PathVariable UUID id,
+                                                   @RequestBody(required = false) CancelRequest request,
+                                                   @AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
+        String reason = request != null ? request.reason() : null;
+        ShipmentResponse response = shipmentService.cancel(id, principal.getUserId(), reason);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/check-delays")
+    public ResponseEntity<ShipmentDelayCheckResponse> checkDelays(@AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
+        ShipmentDelayCheckResponse response = shipmentService.checkEstimatedArrivalAlerts();
         return ResponseEntity.ok(response);
     }
 }

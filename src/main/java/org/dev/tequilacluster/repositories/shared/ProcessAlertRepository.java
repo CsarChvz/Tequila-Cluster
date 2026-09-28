@@ -21,4 +21,8 @@ public interface ProcessAlertRepository extends JpaRepository<ProcessAlert, UUID
     List<ProcessAlert> findByBatch_IdAndSeverityAndResolvedAtIsNull(UUID batchId, AlertSeverity severity);
 
     List<ProcessAlert> findBySeverityAndResolvedAtIsNull(AlertSeverity severity);
+
+    boolean existsByShipment_IdAndAlertTypeAndResolvedAtIsNull(UUID shipmentId, String alertType);
+
+    List<ProcessAlert> findByShipment_IdAndAlertTypeAndResolvedAtIsNull(UUID shipmentId, String alertType);
 }

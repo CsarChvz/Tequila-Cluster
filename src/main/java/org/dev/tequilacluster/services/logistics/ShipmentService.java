@@ -2,6 +2,7 @@ package org.dev.tequilacluster.services.logistics;
 
 import tools.jackson.databind.ObjectMapper;
 import org.dev.tequilacluster.dtos.logistics.ShipmentCreateRequest;
+import org.dev.tequilacluster.dtos.logistics.ShipmentDelayCheckResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentCreateRequest;
 import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentItemRequest;
@@ -13,33 +14,48 @@ import org.dev.tequilacluster.models.bottling.BottlingBatch;
 import org.dev.tequilacluster.models.catalogs.Carrier;
 import org.dev.tequilacluster.models.catalogs.DocumentType;
 import org.dev.tequilacluster.models.catalogs.ShipmentType;
+import org.dev.tequilacluster.models.catalogs.ValidationRule;
 import org.dev.tequilacluster.models.logistics.Shipment;
 import org.dev.tequilacluster.models.logistics.ShipmentDocument;
+import org.dev.tequilacluster.models.inventory.InventoryMovement;
+import org.dev.tequilacluster.models.inventory.enums.MovementType;
 import org.dev.tequilacluster.models.logistics.ShipmentItem;
 import org.dev.tequilacluster.models.logistics.ShipmentItemId;
 import org.dev.tequilacluster.models.logistics.ShipmentTypeRequiredDocument;
 import org.dev.tequilacluster.models.logistics.enums.ShipmentStatus;
 import org.dev.tequilacluster.models.security.AppUser;
+import org.dev.tequilacluster.models.shared.AuditLog;
 import org.dev.tequilacluster.models.shared.Batch;
+import org.dev.tequilacluster.models.shared.ProcessAlert;
+import org.dev.tequilacluster.models.shared.enums.AlertSeverity;
 import org.dev.tequilacluster.models.shared.enums.BatchStatus;
 import org.dev.tequilacluster.repositories.bottling.BottlingBatchRepository;
 import org.dev.tequilacluster.repositories.catalogs.CarrierRepository;
 import org.dev.tequilacluster.repositories.catalogs.DocumentTypeRepository;
 import org.dev.tequilacluster.repositories.catalogs.ShipmentTypeRepository;
+import org.dev.tequilacluster.repositories.catalogs.ValidationRuleRepository;
+import org.dev.tequilacluster.repositories.inventory.InventoryMovementRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentDocumentRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentItemRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentTypeRequiredDocumentRepository;
 import org.dev.tequilacluster.repositories.security.AppUserRepository;
+import org.dev.tequilacluster.repositories.shared.AuditLogRepository;
+import org.dev.tequilacluster.repositories.shared.ProcessAlertRepository;
+import org.dev.tequilacluster.services.shared.AlertService;
 import org.dev.tequilacluster.services.shared.AuditLogService;
+import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -60,6 +76,11 @@ public class ShipmentService {
     private final AppUserRepository appUserRepository;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final ValidationRuleRepository validationRuleRepository;
+    private final ProcessAlertRepository processAlertRepository;
+    private final AlertService alertService;
+    private final AuditLogRepository auditLogRepository;
+    private final InventoryMovementRepository inventoryMovementRepository;
 
     public ShipmentService(
             ShipmentRepository shipmentRepository,
@@ -72,7 +93,12 @@ public class ShipmentService {
             CarrierRepository carrierRepository,
             AppUserRepository appUserRepository,
             AuditLogService auditLogService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ValidationRuleRepository validationRuleRepository,
+            ProcessAlertRepository processAlertRepository,
+            AlertService alertService,
+            AuditLogRepository auditLogRepository,
+            InventoryMovementRepository inventoryMovementRepository
     ) {
         this.shipmentRepository = shipmentRepository;
         this.shipmentItemRepository = shipmentItemRepository;
@@ -85,6 +111,11 @@ public class ShipmentService {
         this.appUserRepository = appUserRepository;
         this.auditLogService = auditLogService;
         this.objectMapper = objectMapper;
+        this.validationRuleRepository = validationRuleRepository;
+        this.processAlertRepository = processAlertRepository;
+        this.alertService = alertService;
+        this.auditLogRepository = auditLogRepository;
+        this.inventoryMovementRepository = inventoryMovementRepository;
     }
 
     /**
@@ -318,6 +349,140 @@ public class ShipmentService {
     }
 
     /**
+     * FR-32 / RB-405: Cancela un embarque en estado PLANNED o IN_TRANSIT.
+     * Un embarque DELIVERED no puede cancelarse.
+     * Un embarque CANCELLED no puede volver a cancelarse.
+     *
+     * Limitación de modelo: La entidad y tabla 'shipment' no cuentan con columna
+     * para 'cancellation_reason'. El motivo (si se proporciona) se preserva en el
+     * log de auditoría 'afterData' mediante serialización JSON.
+     */
+    @Transactional
+    public ShipmentResponse cancel(UUID shipmentId, UUID currentUserId, String reason) {
+        Shipment shipment = shipmentRepository.findById(shipmentId)
+                .orElseThrow(() -> NotFoundException.of("Shipment", shipmentId));
+
+        if (shipment.getStatus() == ShipmentStatus.DELIVERED) {
+            throw new BusinessRuleViolationException("RB-405",
+                    "Cannot cancel a shipment that has already been delivered");
+        }
+
+        if (shipment.getStatus() == ShipmentStatus.CANCELLED) {
+            throw new BusinessRuleViolationException("RB-405",
+                    "Shipment is already cancelled");
+        }
+
+        ShipmentStatus previousStatus = shipment.getStatus();
+        shipment.setStatus(ShipmentStatus.CANCELLED);
+        shipment = shipmentRepository.save(shipment);
+
+        // FR-42: Auditoría con estado anterior y posterior (incluyendo motivo si fue provisto)
+        Map<String, Object> before = Map.of("status", previousStatus.name());
+        Map<String, Object> after = new HashMap<>();
+        after.put("status", ShipmentStatus.CANCELLED.name());
+        if (reason != null && !reason.isBlank()) {
+            after.put("cancellationReason", reason);
+        }
+        auditLogService.record(currentUserId, "CANCEL", "shipment", shipment.getId(), toJson(before), toJson(after));
+
+        List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
+        List<ShipmentDocument> documents = shipmentDocumentRepository.findByShipment_Id(shipmentId);
+        return toResponse(shipment, items, documents);
+    }
+
+    /**
+     * FR-31 / RB-404: Verifica y genera alertas para embarques en tránsito cuyo
+     * tiempo actual ha excedido estimatedArrivalAt + tolerancia.
+     *
+     * La tolerancia se obtiene de validation_rule para la etapa LOGISTICS.
+     * Si no existe o no define valor, se aplica el fallback por defecto de 48 horas.
+     * Evita duplicados: Si ya existe una alerta abierta de tipo SHIPMENT_DELAY para el
+     * embarque, no se genera una nueva.
+     */
+    @Transactional
+    public ShipmentDelayCheckResponse checkEstimatedArrivalAlerts() {
+        long toleranceHours = resolveDelayToleranceHours();
+        Instant now = Instant.now();
+        Instant cutoff = now.minus(Duration.ofHours(toleranceHours));
+
+        // Todos los embarques en tránsito
+        List<Shipment> inTransitShipments = shipmentRepository.findByStatus(ShipmentStatus.IN_TRANSIT);
+
+        List<ShipmentDelayCheckResponse.ShipmentDelayAlertItem> alertItems = new ArrayList<>();
+        int delayedCount = 0;
+        int newAlertsCount = 0;
+
+        for (Shipment shipment : inTransitShipments) {
+            // Un embarque está retrasado si now > estimatedArrivalAt + tolerance
+            // lo cual equivale a estimatedArrivalAt < now - tolerance (cutoff)
+            if (shipment.getEstimatedArrivalAt() != null && shipment.getEstimatedArrivalAt().isBefore(cutoff)) {
+                delayedCount++;
+
+                boolean alertAlreadyOpen = processAlertRepository
+                        .existsByShipment_IdAndAlertTypeAndResolvedAtIsNull(shipment.getId(), "SHIPMENT_DELAY");
+
+                if (alertAlreadyOpen) {
+                    List<ProcessAlert> existing = processAlertRepository
+                            .findByShipment_IdAndAlertTypeAndResolvedAtIsNull(shipment.getId(), "SHIPMENT_DELAY");
+                    UUID alertId = existing.isEmpty() ? null : existing.getFirst().getId();
+                    String msg = existing.isEmpty() ? "Open delay alert exists" : existing.getFirst().getMessage();
+                    alertItems.add(new ShipmentDelayCheckResponse.ShipmentDelayAlertItem(
+                            alertId,
+                            shipment.getId(),
+                            shipment.getShipmentNumber(),
+                            msg,
+                            false
+                    ));
+                } else {
+                    String message = String.format(
+                            "Shipment %s is delayed. Estimated arrival was %s (tolerance: %d hours exceeded).",
+                            shipment.getShipmentNumber(),
+                            shipment.getEstimatedArrivalAt(),
+                            toleranceHours
+                    );
+                    ProcessAlert alert = alertService.raiseForShipment(
+                            shipment.getId(),
+                            "SHIPMENT_DELAY",
+                            AlertSeverity.WARNING,
+                            message
+                    );
+                    newAlertsCount++;
+                    alertItems.add(new ShipmentDelayCheckResponse.ShipmentDelayAlertItem(
+                            alert.getId(),
+                            shipment.getId(),
+                            shipment.getShipmentNumber(),
+                            alert.getMessage(),
+                            true
+                    ));
+                }
+            }
+        }
+
+        return new ShipmentDelayCheckResponse(
+                inTransitShipments.size(),
+                delayedCount,
+                newAlertsCount,
+                toleranceHours,
+                alertItems
+        );
+    }
+
+    private long resolveDelayToleranceHours() {
+        Optional<ValidationRule> ruleOpt = validationRuleRepository
+                .findByProcessStageCodeAndParameterCodeAndActiveTrue(ProcessStageCodes.LOGISTICS, "ESTIMATED_ARRIVAL_TOLERANCE");
+
+        if (ruleOpt.isPresent()) {
+            ValidationRule rule = ruleOpt.get();
+            if (rule.getAllowedDeviation() != null && rule.getAllowedDeviation().compareTo(BigDecimal.ZERO) >= 0) {
+                return rule.getAllowedDeviation().longValue();
+            }
+        }
+
+        // Fallback directo de 48 horas conforme a FR-31 / RB-404
+        return 48L;
+    }
+
+    /**
      * Obtener un embarque por su ID.
      */
     @Transactional(readOnly = true)
@@ -348,18 +513,83 @@ public class ShipmentService {
      *
      * Fórmula de disponibilidad:
      * Unidades Disponibles = Unidades Embotelladas Totales (unitsBottled)
-     *                      - Unidades Comprometidas en Embarques Activos (status != CANCELLED)
+     *                      - Unidades Comprometidas
+     *
+     * Reglas para Unidades Comprometidas (RB-401, RB-406):
+     * 1. PLANNED, IN_TRANSIT, DELIVERED: Siempre cuentan como comprometidas.
+     * 2. CANCELLED desde PLANNED: NO cuentan como comprometidas (la mercancía nunca salió de bodega,
+     *    cancelación segura antes del tránsito).
+     * 3. CANCELLED desde IN_TRANSIT: SIGUEN contando como comprometidas (la mercancía salió físicamente
+     *    a tránsito y no está en bodega), descontando únicamente las unidades que cuenten con
+     *    evidencia de retorno físico registradas en InventoryMovement de tipo RETURN_IN
+     *    (reference_type = "SHIPMENT", reference_id = shipment.id).
      */
     public int calculateAvailableUnits(BottlingBatch bottlingBatch) {
         int totalBottled = bottlingBatch.getUnitsBottled() != null ? bottlingBatch.getUnitsBottled() : 0;
 
         List<ShipmentItem> existingItems = shipmentItemRepository.findByBottlingBatch_Id(bottlingBatch.getId());
-        int committedUnits = existingItems.stream()
-                .filter(item -> item.getShipment().getStatus() != ShipmentStatus.CANCELLED)
-                .mapToInt(ShipmentItem::getQuantityUnits)
-                .sum();
+        int totalCommitted = 0;
 
-        return Math.max(0, totalBottled - committedUnits);
+        for (ShipmentItem item : existingItems) {
+            Shipment shipment = item.getShipment();
+            ShipmentStatus status = shipment.getStatus();
+
+            if (status == ShipmentStatus.PLANNED
+                    || status == ShipmentStatus.IN_TRANSIT
+                    || status == ShipmentStatus.DELIVERED) {
+                totalCommitted += item.getQuantityUnits();
+            } else if (status == ShipmentStatus.CANCELLED) {
+                if (wasCancelledFromInTransit(shipment)) {
+                    // Salió a tránsito antes de ser cancelado: las unidades no regresan automáticamente a bodega.
+                    // Se verifica si existen movimientos de inventario RETURN_IN registrados.
+                    int returnedUnits = getReturnedUnitsForShipmentAndBatch(shipment.getId(), bottlingBatch.getId());
+                    // Regla conservadora: acotar retorno para que nunca supere las unidades asignadas originalmente al item
+                    int effectiveReturnedUnits = Math.min(item.getQuantityUnits(), returnedUnits);
+                    int unreturnedUnits = item.getQuantityUnits() - effectiveReturnedUnits;
+                    totalCommitted += unreturnedUnits;
+                }
+                // Si fue cancelado desde PLANNED, no se suma a comprometidos (unidades liberadas de forma segura).
+            }
+        }
+
+        return Math.max(0, totalBottled - totalCommitted);
+    }
+
+    private boolean wasCancelledFromInTransit(Shipment shipment) {
+        Optional<AuditLog> cancelLog = auditLogRepository
+                .findTopByEntityTypeAndEntityIdAndActionOrderByOccurredAtDesc("shipment", shipment.getId(), "CANCEL");
+
+        if (cancelLog.isPresent()) {
+            String beforeData = cancelLog.get().getBeforeData();
+            if (beforeData != null) {
+                try {
+                    var node = objectMapper.readTree(beforeData);
+                    String prevStatus = node.path("status").asText();
+                    return ShipmentStatus.IN_TRANSIT.name().equalsIgnoreCase(prevStatus);
+                } catch (Exception ignored) {
+                    return beforeData.contains(ShipmentStatus.IN_TRANSIT.name());
+                }
+            }
+        }
+
+        // Si no hay log de CANCEL, verificar si alguna vez se registró START_TRANSIT para este shipment
+        return !auditLogRepository
+                .findByEntityTypeAndEntityIdAndActionOrderByOccurredAtDesc("shipment", shipment.getId(), "START_TRANSIT")
+                .isEmpty();
+    }
+
+    private int getReturnedUnitsForShipmentAndBatch(UUID shipmentId, UUID bottlingBatchId) {
+        List<InventoryMovement> returnMovements = inventoryMovementRepository
+                .findByBottlingBatch_IdAndReferenceTypeAndReferenceIdAndMovementType(
+                        bottlingBatchId, "SHIPMENT", shipmentId, MovementType.RETURN_IN);
+
+        // Enfoque conservador: únicamente sumar cantidades estrictamente positivas.
+        // Nunca usar Math.abs() para evitar que un valor negativo anómalo aumente disponibilidad.
+        return returnMovements.stream()
+                .map(InventoryMovement::getQuantityChangeUnits)
+                .filter(qty -> qty != null && qty > 0)
+                .mapToInt(Integer::intValue)
+                .sum();
     }
 
     private String toJson(Object data) {

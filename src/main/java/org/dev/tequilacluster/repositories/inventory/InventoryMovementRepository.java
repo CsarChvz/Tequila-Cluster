@@ -17,4 +17,9 @@ public interface InventoryMovementRepository extends JpaRepository<InventoryMove
     List<InventoryMovement> findByLocation_Id(UUID locationId);
 
     List<InventoryMovement> findByMovementType(MovementType movementType);
+
+    List<InventoryMovement> findByBottlingBatch_IdAndReferenceTypeAndReferenceIdAndMovementType(
+            UUID bottlingBatchId, String referenceType, UUID referenceId, MovementType movementType);
+
+    List<InventoryMovement> findByReferenceTypeAndReferenceId(String referenceType, UUID referenceId);
 }
