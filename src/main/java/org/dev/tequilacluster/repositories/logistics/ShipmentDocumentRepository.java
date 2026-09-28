@@ -14,4 +14,6 @@ public interface ShipmentDocumentRepository extends JpaRepository<ShipmentDocume
     List<ShipmentDocument> findByShipment_IdAndValidTrue(UUID shipmentId);
 
     List<ShipmentDocument> findByDocumentType_Id(UUID documentTypeId);
+
+    boolean existsByShipment_IdAndDocumentType_IdAndDocumentNumber(UUID shipmentId, UUID documentTypeId, String documentNumber);
 }

@@ -2,6 +2,8 @@ package org.dev.tequilacluster.controllers.logistics;
 
 import jakarta.validation.Valid;
 import org.dev.tequilacluster.dtos.logistics.ShipmentCreateRequest;
+import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentCreateRequest;
+import org.dev.tequilacluster.dtos.logistics.ShipmentDocumentResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentResponse;
 import org.dev.tequilacluster.services.logistics.ShipmentService;
 import org.dev.tequilacluster.services.security.StagePermissionService;
@@ -53,5 +55,22 @@ public class ShipmentController {
     public ResponseEntity<List<ShipmentResponse>> list(@AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.VIEW);
         return ResponseEntity.ok(shipmentService.list());
+    }
+
+    @PostMapping("/{id}/documents")
+    public ResponseEntity<ShipmentDocumentResponse> addDocument(@PathVariable UUID id,
+                                                                @Valid @RequestBody ShipmentDocumentCreateRequest request,
+                                                                @AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
+        ShipmentDocumentResponse response = shipmentService.addDocument(id, request, principal.getUserId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/{id}/start-transit")
+    public ResponseEntity<ShipmentResponse> startTransit(@PathVariable UUID id,
+                                                         @AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
+        ShipmentResponse response = shipmentService.startTransit(id, principal.getUserId());
+        return ResponseEntity.ok(response);
     }
 }
