@@ -10,41 +10,42 @@ import org.dev.tequilacluster.dtos.logistics.ShipmentItemResponse;
 import org.dev.tequilacluster.dtos.logistics.ShipmentResponse;
 import org.dev.tequilacluster.exceptions.BusinessRuleViolationException;
 import org.dev.tequilacluster.exceptions.NotFoundException;
+import org.dev.tequilacluster.models.bottling.BottledUnit;
 import org.dev.tequilacluster.models.bottling.BottlingBatch;
+import org.dev.tequilacluster.models.bottling.enums.BottledUnitStatus;
 import org.dev.tequilacluster.models.catalogs.Carrier;
 import org.dev.tequilacluster.models.catalogs.DocumentType;
 import org.dev.tequilacluster.models.catalogs.ShipmentType;
 import org.dev.tequilacluster.models.catalogs.ValidationRule;
 import org.dev.tequilacluster.models.logistics.Shipment;
 import org.dev.tequilacluster.models.logistics.ShipmentDocument;
-import org.dev.tequilacluster.models.inventory.InventoryMovement;
-import org.dev.tequilacluster.models.inventory.enums.MovementType;
 import org.dev.tequilacluster.models.logistics.ShipmentItem;
 import org.dev.tequilacluster.models.logistics.ShipmentItemId;
 import org.dev.tequilacluster.models.logistics.ShipmentTypeRequiredDocument;
+import org.dev.tequilacluster.models.logistics.ShipmentUnit;
 import org.dev.tequilacluster.models.logistics.enums.ShipmentStatus;
 import org.dev.tequilacluster.models.security.AppUser;
-import org.dev.tequilacluster.models.shared.AuditLog;
 import org.dev.tequilacluster.models.shared.Batch;
 import org.dev.tequilacluster.models.shared.ProcessAlert;
 import org.dev.tequilacluster.models.shared.enums.AlertSeverity;
 import org.dev.tequilacluster.models.shared.enums.BatchStatus;
+import org.dev.tequilacluster.repositories.bottling.BottledUnitRepository;
 import org.dev.tequilacluster.repositories.bottling.BottlingBatchRepository;
 import org.dev.tequilacluster.repositories.catalogs.CarrierRepository;
 import org.dev.tequilacluster.repositories.catalogs.DocumentTypeRepository;
 import org.dev.tequilacluster.repositories.catalogs.ShipmentTypeRepository;
 import org.dev.tequilacluster.repositories.catalogs.ValidationRuleRepository;
-import org.dev.tequilacluster.repositories.inventory.InventoryMovementRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentDocumentRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentItemRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentRepository;
 import org.dev.tequilacluster.repositories.logistics.ShipmentTypeRequiredDocumentRepository;
+import org.dev.tequilacluster.repositories.logistics.ShipmentUnitRepository;
 import org.dev.tequilacluster.repositories.security.AppUserRepository;
-import org.dev.tequilacluster.repositories.shared.AuditLogRepository;
 import org.dev.tequilacluster.repositories.shared.ProcessAlertRepository;
 import org.dev.tequilacluster.services.shared.AlertService;
 import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -79,8 +80,8 @@ public class ShipmentService {
     private final ValidationRuleRepository validationRuleRepository;
     private final ProcessAlertRepository processAlertRepository;
     private final AlertService alertService;
-    private final AuditLogRepository auditLogRepository;
-    private final InventoryMovementRepository inventoryMovementRepository;
+    private final BottledUnitRepository bottledUnitRepository;
+    private final ShipmentUnitRepository shipmentUnitRepository;
 
     public ShipmentService(
             ShipmentRepository shipmentRepository,
@@ -97,8 +98,8 @@ public class ShipmentService {
             ValidationRuleRepository validationRuleRepository,
             ProcessAlertRepository processAlertRepository,
             AlertService alertService,
-            AuditLogRepository auditLogRepository,
-            InventoryMovementRepository inventoryMovementRepository
+            BottledUnitRepository bottledUnitRepository,
+            ShipmentUnitRepository shipmentUnitRepository
     ) {
         this.shipmentRepository = shipmentRepository;
         this.shipmentItemRepository = shipmentItemRepository;
@@ -114,8 +115,8 @@ public class ShipmentService {
         this.validationRuleRepository = validationRuleRepository;
         this.processAlertRepository = processAlertRepository;
         this.alertService = alertService;
-        this.auditLogRepository = auditLogRepository;
-        this.inventoryMovementRepository = inventoryMovementRepository;
+        this.bottledUnitRepository = bottledUnitRepository;
+        this.shipmentUnitRepository = shipmentUnitRepository;
     }
 
     /**
@@ -180,16 +181,12 @@ public class ShipmentService {
 
         // Adquirir lock PESSIMISTIC_WRITE sobre cada BottlingBatch en orden determinista
         Map<UUID, BottlingBatch> lockedBatches = new HashMap<>();
+        Map<UUID, List<BottledUnit>> bottlesByBatch = new HashMap<>();
+
         for (UUID batchId : sortedBatchIds) {
             BottlingBatch bottlingBatch = bottlingBatchRepository.findByIdForUpdate(batchId)
                     .orElseThrow(() -> NotFoundException.of("BottlingBatch", batchId));
             lockedBatches.put(batchId, bottlingBatch);
-        }
-
-        // Con los locks adquiridos, validar estado y disponibilidad de unidades
-        for (UUID batchId : sortedBatchIds) {
-            BottlingBatch bottlingBatch = lockedBatches.get(batchId);
-            Integer requestedQuantity = requestedUnitsByBatch.get(batchId);
 
             // FR-26 / RB-401: solo bottling batches COMPLETED
             Batch parentBatch = bottlingBatch.getBatch();
@@ -198,13 +195,23 @@ public class ShipmentService {
                         "Source bottling batch is not COMPLETED: " + batchId);
             }
 
-            // FR-27 / RB-401 / RB-406: recalcular unidades disponibles bajo el lock
-            int availableUnits = calculateAvailableUnits(bottlingBatch);
-            if (requestedQuantity > availableUnits) {
+            Integer requestedQuantity = requestedUnitsByBatch.get(batchId);
+
+            // Consultar exactamente quantityUnits de BottledUnit con status AVAILABLE (orden determinista por unitCode)
+            List<BottledUnit> availableBottles = bottledUnitRepository.findAvailableForReservation(
+                    batchId,
+                    BottledUnitStatus.AVAILABLE,
+                    PageRequest.of(0, requestedQuantity)
+            );
+
+            // FR-27 / RB-401 / RB-406: rechazar si hay menos botellas físicas disponibles que las solicitadas
+            if (availableBottles.size() < requestedQuantity) {
                 throw new BusinessRuleViolationException("RB-401",
                         "Requested units (" + requestedQuantity + ") exceeds available units ("
-                                + availableUnits + ") for bottling batch: " + batchId);
+                                + availableBottles.size() + ") for bottling batch: " + batchId);
             }
+
+            bottlesByBatch.put(batchId, availableBottles);
         }
 
         // Persistir Shipment en estado PLANNED
@@ -224,19 +231,47 @@ public class ShipmentService {
         }
         shipment = shipmentRepository.save(shipment);
 
-        // Persistir ShipmentItems consolidados
+        // Persistir ShipmentItems consolidados y reservar físicamente cada BottledUnit con ShipmentUnit activa
         List<ShipmentItem> savedItems = new ArrayList<>();
+        List<BottledUnit> bottlesToSave = new ArrayList<>();
+        List<ShipmentUnit> unitsToSave = new ArrayList<>();
+        Instant reservationInstant = Instant.now();
+
         for (UUID batchId : sortedBatchIds) {
             BottlingBatch bb = lockedBatches.get(batchId);
+            Integer qty = requestedUnitsByBatch.get(batchId);
             ShipmentItemId itemId = new ShipmentItemId(shipment.getId(), bb.getId());
-            ShipmentItem item = new ShipmentItem(itemId, shipment, bb, requestedUnitsByBatch.get(batchId));
+            ShipmentItem item = new ShipmentItem(itemId, shipment, bb, qty);
             savedItems.add(shipmentItemRepository.save(item));
+
+            List<BottledUnit> batchBottles = bottlesByBatch.get(batchId);
+            for (BottledUnit bottle : batchBottles) {
+                if (bottle.getStatus() != BottledUnitStatus.AVAILABLE) {
+                    throw new BusinessRuleViolationException("RB-401",
+                            "Bottle " + bottle.getUnitCode() + " is not AVAILABLE for reservation");
+                }
+                bottle.setStatus(BottledUnitStatus.RESERVED);
+                bottlesToSave.add(bottle);
+
+                ShipmentUnit unit = ShipmentUnit.builder()
+                        .shipment(shipment)
+                        .bottledUnit(bottle)
+                        .assignedAt(reservationInstant)
+                        .releasedAt(null)
+                        .build();
+                unitsToSave.add(unit);
+            }
         }
 
-        // FR-42: Auditoría serializada con ObjectMapper
+        bottledUnitRepository.saveAll(bottlesToSave);
+        shipmentUnitRepository.saveAll(unitsToSave);
+
+        // FR-42: Auditoría serializada con ObjectMapper (datos agregados seguros, sin arrays de miles de UUIDs)
+        int totalUnitsReserved = savedItems.stream().mapToInt(ShipmentItem::getQuantityUnits).sum();
         Map<String, Object> after = Map.of(
                 "shipmentNumber", shipment.getShipmentNumber(),
-                "status", shipment.getStatus().name()
+                "status", shipment.getStatus().name(),
+                "totalUnitsReserved", totalUnitsReserved
         );
         auditLogService.record(currentUserId, "CREATE", "shipment", shipment.getId(), null, toJson(after));
 
@@ -297,11 +332,12 @@ public class ShipmentService {
 
     /**
      * FR-29 / RB-402, RB-405:
-     * Transición PLANNED -> IN_TRANSIT tras verificar todos los documentos requeridos válidos.
+     * Transición PLANNED -> IN_TRANSIT tras verificar todos los documentos requeridos válidos
+     * y validar la integridad física de las unidades (RESERVED -> SHIPPED).
      */
     @Transactional
     public ShipmentResponse startTransit(UUID shipmentId, UUID currentUserId) {
-        Shipment shipment = shipmentRepository.findById(shipmentId)
+        Shipment shipment = shipmentRepository.findByIdForUpdate(shipmentId)
                 .orElseThrow(() -> NotFoundException.of("Shipment", shipmentId));
 
         if (shipment.getStatus() != ShipmentStatus.PLANNED) {
@@ -335,7 +371,50 @@ public class ShipmentService {
             }
         }
 
-        // Cambiar estado a IN_TRANSIT (sin modificar BottledUnit todavía)
+        // Validar integridad física: consultar ShipmentUnit activas asociadas al shipment
+        List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
+        if (items.isEmpty()) {
+            throw new BusinessRuleViolationException("RB-401",
+                    "Shipment has no items associated: " + shipmentId);
+        }
+
+        List<ShipmentUnit> activeUnits = shipmentUnitRepository.findByShipment_IdAndReleasedAtIsNull(shipmentId);
+
+        Map<UUID, List<ShipmentUnit>> unitsByBatch = activeUnits.stream()
+                .collect(Collectors.groupingBy(su -> su.getBottledUnit().getBottlingBatch().getId()));
+
+        for (ShipmentItem item : items) {
+            List<ShipmentUnit> batchUnits = unitsByBatch.getOrDefault(item.getBottlingBatch().getId(), List.of());
+            if (batchUnits.size() != item.getQuantityUnits()) {
+                throw new BusinessRuleViolationException("RB-401",
+                        "Data integrity violation: shipment item requires " + item.getQuantityUnits()
+                                + " units for batch " + item.getBottlingBatch().getId()
+                                + ", but found " + batchUnits.size() + " active shipment units.");
+            }
+        }
+
+        int totalItemUnits = items.stream().mapToInt(ShipmentItem::getQuantityUnits).sum();
+        if (activeUnits.size() != totalItemUnits) {
+            throw new BusinessRuleViolationException("RB-401",
+                    "Data integrity violation: total active shipment units (" + activeUnits.size()
+                            + ") does not match total item quantity (" + totalItemUnits + ").");
+        }
+
+        // Verificar que todas las botellas asociadas estén en RESERVED y pasar a SHIPPED
+        List<BottledUnit> bottlesToShip = new ArrayList<>();
+        for (ShipmentUnit unit : activeUnits) {
+            BottledUnit bottle = unit.getBottledUnit();
+            if (bottle.getStatus() != BottledUnitStatus.RESERVED) {
+                throw new BusinessRuleViolationException("RB-405",
+                        "Bottled unit " + bottle.getUnitCode() + " is in status " + bottle.getStatus()
+                                + ", expected RESERVED to start transit.");
+            }
+            bottle.setStatus(BottledUnitStatus.SHIPPED);
+            bottlesToShip.add(bottle);
+        }
+        bottledUnitRepository.saveAll(bottlesToShip);
+
+        // Cambiar estado a IN_TRANSIT
         shipment.setStatus(ShipmentStatus.IN_TRANSIT);
         shipment = shipmentRepository.save(shipment);
 
@@ -344,7 +423,6 @@ public class ShipmentService {
         Map<String, Object> after = Map.of("status", ShipmentStatus.IN_TRANSIT.name());
         auditLogService.record(currentUserId, "START_TRANSIT", "shipment", shipment.getId(), toJson(before), toJson(after));
 
-        List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
         return toResponse(shipment, items, uploadedDocs);
     }
 
@@ -353,13 +431,26 @@ public class ShipmentService {
      * Un embarque DELIVERED no puede cancelarse.
      * Un embarque CANCELLED no puede volver a cancelarse.
      *
+     * Si cancela desde PLANNED:
+     * - Valida estrictamente que las botellas asociadas estén en RESERVED (aborta si hay inconsistencia).
+     * - Las botellas pasan de RESERVED -> AVAILABLE.
+     * - ShipmentUnit.releasedAt = now() (sin borrado físico).
+     *
+     * Si cancela desde IN_TRANSIT:
+     * - Las botellas permanecen en SHIPPED (custodia del transportista hasta que se registre retorno físico en Inventory).
+     * - ShipmentUnit.releasedAt permanece null.
+     *
      * Limitación de modelo: La entidad y tabla 'shipment' no cuentan con columna
-     * para 'cancellation_reason'. El motivo (si se proporciona) se preserva en el
+     * para 'cancellation_reason'. El motivo obligatorio se preserva en el
      * log de auditoría 'afterData' mediante serialización JSON.
      */
     @Transactional
     public ShipmentResponse cancel(UUID shipmentId, UUID currentUserId, String reason) {
-        Shipment shipment = shipmentRepository.findById(shipmentId)
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessRuleViolationException("RB-405", "Cancellation reason is required");
+        }
+
+        Shipment shipment = shipmentRepository.findByIdForUpdate(shipmentId)
                 .orElseThrow(() -> NotFoundException.of("Shipment", shipmentId));
 
         if (shipment.getStatus() == ShipmentStatus.DELIVERED) {
@@ -373,19 +464,123 @@ public class ShipmentService {
         }
 
         ShipmentStatus previousStatus = shipment.getStatus();
+
+        if (previousStatus == ShipmentStatus.PLANNED) {
+            // Cancelación segura antes del despacho: liberar reserva física
+            List<ShipmentUnit> activeUnits = shipmentUnitRepository.findByShipment_IdAndReleasedAtIsNull(shipmentId);
+            Instant now = Instant.now();
+            List<BottledUnit> bottlesToRelease = new ArrayList<>();
+
+            for (ShipmentUnit unit : activeUnits) {
+                BottledUnit bottle = unit.getBottledUnit();
+                if (bottle.getStatus() != BottledUnitStatus.RESERVED) {
+                    throw new BusinessRuleViolationException("RB-405",
+                            "Data integrity violation: Bottled unit " + bottle.getUnitCode()
+                                    + " is in status " + bottle.getStatus()
+                                    + ", expected RESERVED to cancel from PLANNED.");
+                }
+                bottle.setStatus(BottledUnitStatus.AVAILABLE);
+                bottlesToRelease.add(bottle);
+                unit.setReleasedAt(now);
+            }
+
+            bottledUnitRepository.saveAll(bottlesToRelease);
+            shipmentUnitRepository.saveAll(activeUnits);
+        }
+        // Si cancela desde IN_TRANSIT: las botellas quedan en SHIPPED y releasedAt en null
+        // hasta que Inventory procese el RETURN_IN físico.
+
         shipment.setStatus(ShipmentStatus.CANCELLED);
         shipment = shipmentRepository.save(shipment);
 
-        // FR-42: Auditoría con estado anterior y posterior (incluyendo motivo si fue provisto)
+        // FR-42: Auditoría con estado anterior y posterior (incluyendo motivo obligatorio)
         Map<String, Object> before = Map.of("status", previousStatus.name());
-        Map<String, Object> after = new HashMap<>();
-        after.put("status", ShipmentStatus.CANCELLED.name());
-        if (reason != null && !reason.isBlank()) {
-            after.put("cancellationReason", reason);
-        }
+        Map<String, Object> after = Map.of(
+                "status", ShipmentStatus.CANCELLED.name(),
+                "cancellationReason", reason
+        );
         auditLogService.record(currentUserId, "CANCEL", "shipment", shipment.getId(), toJson(before), toJson(after));
 
         List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
+        List<ShipmentDocument> documents = shipmentDocumentRepository.findByShipment_Id(shipmentId);
+        return toResponse(shipment, items, documents);
+    }
+
+    /**
+     * FR-32 / RB-405: Confirma la entrega de un embarque en destino.
+     * Solo permitido desde IN_TRANSIT.
+     * Valida integridad física de las unidades (ShipmentUnit activas).
+     * Transiciona las botellas de SHIPPED -> DELIVERED.
+     * Registra deliveredAt = now() y cambia status a DELIVERED.
+     * Las filas de ShipmentUnit conservan releasedAt = null como evidencia permanente de custodia y entrega.
+     */
+    @Transactional
+    public ShipmentResponse deliver(UUID shipmentId, UUID currentUserId) {
+        Shipment shipment = shipmentRepository.findByIdForUpdate(shipmentId)
+                .orElseThrow(() -> NotFoundException.of("Shipment", shipmentId));
+
+        if (shipment.getStatus() != ShipmentStatus.IN_TRANSIT) {
+            throw new BusinessRuleViolationException("RB-405",
+                    "Shipment can only transition to DELIVERED from IN_TRANSIT. Current status: " + shipment.getStatus());
+        }
+
+        // Validar integridad física: consultar items y ShipmentUnit activas
+        List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
+        if (items.isEmpty()) {
+            throw new BusinessRuleViolationException("RB-401",
+                    "Shipment has no items associated: " + shipmentId);
+        }
+
+        List<ShipmentUnit> activeUnits = shipmentUnitRepository.findByShipment_IdAndReleasedAtIsNull(shipmentId);
+
+        Map<UUID, List<ShipmentUnit>> unitsByBatch = activeUnits.stream()
+                .collect(Collectors.groupingBy(su -> su.getBottledUnit().getBottlingBatch().getId()));
+
+        for (ShipmentItem item : items) {
+            List<ShipmentUnit> batchUnits = unitsByBatch.getOrDefault(item.getBottlingBatch().getId(), List.of());
+            if (batchUnits.size() != item.getQuantityUnits()) {
+                throw new BusinessRuleViolationException("RB-401",
+                        "Data integrity violation: shipment item requires " + item.getQuantityUnits()
+                                + " units for batch " + item.getBottlingBatch().getId()
+                                + ", but found " + batchUnits.size() + " active shipment units.");
+            }
+        }
+
+        int totalItemUnits = items.stream().mapToInt(ShipmentItem::getQuantityUnits).sum();
+        if (activeUnits.size() != totalItemUnits) {
+            throw new BusinessRuleViolationException("RB-401",
+                    "Data integrity violation: total active shipment units (" + activeUnits.size()
+                            + ") does not match total item quantity (" + totalItemUnits + ").");
+        }
+
+        // Verificar que todas las botellas asociadas estén en SHIPPED y pasar a DELIVERED
+        List<BottledUnit> bottlesToDeliver = new ArrayList<>();
+        for (ShipmentUnit unit : activeUnits) {
+            BottledUnit bottle = unit.getBottledUnit();
+            if (bottle.getStatus() != BottledUnitStatus.SHIPPED) {
+                throw new BusinessRuleViolationException("RB-405",
+                        "Bottled unit " + bottle.getUnitCode() + " is in status " + bottle.getStatus()
+                                + ", expected SHIPPED to confirm delivery.");
+            }
+            bottle.setStatus(BottledUnitStatus.DELIVERED);
+            bottlesToDeliver.add(bottle);
+        }
+        bottledUnitRepository.saveAll(bottlesToDeliver);
+
+        // Actualizar shipment
+        Instant now = Instant.now();
+        shipment.setDeliveredAt(now);
+        shipment.setStatus(ShipmentStatus.DELIVERED);
+        shipment = shipmentRepository.save(shipment);
+
+        // FR-42: Auditoría serializada con ObjectMapper
+        Map<String, Object> before = Map.of("status", ShipmentStatus.IN_TRANSIT.name());
+        Map<String, Object> after = Map.of(
+                "status", ShipmentStatus.DELIVERED.name(),
+                "deliveredAt", now.toString()
+        );
+        auditLogService.record(currentUserId, "DELIVER", "shipment", shipment.getId(), toJson(before), toJson(after));
+
         List<ShipmentDocument> documents = shipmentDocumentRepository.findByShipment_Id(shipmentId);
         return toResponse(shipment, items, documents);
     }
@@ -511,85 +706,19 @@ public class ShipmentService {
     /**
      * Calcula las unidades disponibles de un lote de envasado (BottlingBatch).
      *
-     * Fórmula de disponibilidad:
-     * Unidades Disponibles = Unidades Embotelladas Totales (unitsBottled)
-     *                      - Unidades Comprometidas
-     *
-     * Reglas para Unidades Comprometidas (RB-401, RB-406):
-     * 1. PLANNED, IN_TRANSIT, DELIVERED: Siempre cuentan como comprometidas.
-     * 2. CANCELLED desde PLANNED: NO cuentan como comprometidas (la mercancía nunca salió de bodega,
-     *    cancelación segura antes del tránsito).
-     * 3. CANCELLED desde IN_TRANSIT: SIGUEN contando como comprometidas (la mercancía salió físicamente
-     *    a tránsito y no está en bodega), descontando únicamente las unidades que cuenten con
-     *    evidencia de retorno físico registradas en InventoryMovement de tipo RETURN_IN
-     *    (reference_type = "SHIPMENT", reference_id = shipment.id).
+     * Con la reserva física individual implementada (ShipmentUnit), las botellas reservadas,
+     * en tránsito y entregadas tienen estados RESERVED, SHIPPED y DELIVERED respectivamente.
+     * Por lo tanto, la fuente de verdad definitiva y determinista bajo el lock del lote es
+     * el recuento directo de botellas en estado AVAILABLE.
      */
     public int calculateAvailableUnits(BottlingBatch bottlingBatch) {
-        int totalBottled = bottlingBatch.getUnitsBottled() != null ? bottlingBatch.getUnitsBottled() : 0;
-
-        List<ShipmentItem> existingItems = shipmentItemRepository.findByBottlingBatch_Id(bottlingBatch.getId());
-        int totalCommitted = 0;
-
-        for (ShipmentItem item : existingItems) {
-            Shipment shipment = item.getShipment();
-            ShipmentStatus status = shipment.getStatus();
-
-            if (status == ShipmentStatus.PLANNED
-                    || status == ShipmentStatus.IN_TRANSIT
-                    || status == ShipmentStatus.DELIVERED) {
-                totalCommitted += item.getQuantityUnits();
-            } else if (status == ShipmentStatus.CANCELLED) {
-                if (wasCancelledFromInTransit(shipment)) {
-                    // Salió a tránsito antes de ser cancelado: las unidades no regresan automáticamente a bodega.
-                    // Se verifica si existen movimientos de inventario RETURN_IN registrados.
-                    int returnedUnits = getReturnedUnitsForShipmentAndBatch(shipment.getId(), bottlingBatch.getId());
-                    // Regla conservadora: acotar retorno para que nunca supere las unidades asignadas originalmente al item
-                    int effectiveReturnedUnits = Math.min(item.getQuantityUnits(), returnedUnits);
-                    int unreturnedUnits = item.getQuantityUnits() - effectiveReturnedUnits;
-                    totalCommitted += unreturnedUnits;
-                }
-                // Si fue cancelado desde PLANNED, no se suma a comprometidos (unidades liberadas de forma segura).
-            }
+        if (bottlingBatch == null || bottlingBatch.getId() == null) {
+            return 0;
         }
-
-        return Math.max(0, totalBottled - totalCommitted);
-    }
-
-    private boolean wasCancelledFromInTransit(Shipment shipment) {
-        Optional<AuditLog> cancelLog = auditLogRepository
-                .findTopByEntityTypeAndEntityIdAndActionOrderByOccurredAtDesc("shipment", shipment.getId(), "CANCEL");
-
-        if (cancelLog.isPresent()) {
-            String beforeData = cancelLog.get().getBeforeData();
-            if (beforeData != null) {
-                try {
-                    var node = objectMapper.readTree(beforeData);
-                    String prevStatus = node.path("status").asText();
-                    return ShipmentStatus.IN_TRANSIT.name().equalsIgnoreCase(prevStatus);
-                } catch (Exception ignored) {
-                    return beforeData.contains(ShipmentStatus.IN_TRANSIT.name());
-                }
-            }
-        }
-
-        // Si no hay log de CANCEL, verificar si alguna vez se registró START_TRANSIT para este shipment
-        return !auditLogRepository
-                .findByEntityTypeAndEntityIdAndActionOrderByOccurredAtDesc("shipment", shipment.getId(), "START_TRANSIT")
-                .isEmpty();
-    }
-
-    private int getReturnedUnitsForShipmentAndBatch(UUID shipmentId, UUID bottlingBatchId) {
-        List<InventoryMovement> returnMovements = inventoryMovementRepository
-                .findByBottlingBatch_IdAndReferenceTypeAndReferenceIdAndMovementType(
-                        bottlingBatchId, "SHIPMENT", shipmentId, MovementType.RETURN_IN);
-
-        // Enfoque conservador: únicamente sumar cantidades estrictamente positivas.
-        // Nunca usar Math.abs() para evitar que un valor negativo anómalo aumente disponibilidad.
-        return returnMovements.stream()
-                .map(InventoryMovement::getQuantityChangeUnits)
-                .filter(qty -> qty != null && qty > 0)
-                .mapToInt(Integer::intValue)
-                .sum();
+        return (int) bottledUnitRepository.countByBottlingBatch_IdAndStatus(
+                bottlingBatch.getId(),
+                BottledUnitStatus.AVAILABLE
+        );
     }
 
     private String toJson(Object data) {

@@ -78,11 +78,18 @@ public class ShipmentController {
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<ShipmentResponse> cancel(@PathVariable UUID id,
-                                                   @RequestBody(required = false) CancelRequest request,
+                                                   @Valid @RequestBody CancelRequest request,
                                                    @AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.UPDATE);
-        String reason = request != null ? request.reason() : null;
-        ShipmentResponse response = shipmentService.cancel(id, principal.getUserId(), reason);
+        ShipmentResponse response = shipmentService.cancel(id, principal.getUserId(), request.reason());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/deliver")
+    public ResponseEntity<ShipmentResponse> deliver(@PathVariable UUID id,
+                                                    @AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.LOGISTICS, StageAction.COMPLETE);
+        ShipmentResponse response = shipmentService.deliver(id, principal.getUserId());
         return ResponseEntity.ok(response);
     }
 
