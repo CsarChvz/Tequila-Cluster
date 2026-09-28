@@ -1,8 +1,11 @@
 package org.dev.tequilacluster.repositories.bottling;
 
+import jakarta.persistence.LockModeType;
 import org.dev.tequilacluster.models.bottling.BottledUnit;
 import org.dev.tequilacluster.models.bottling.enums.BottledUnitStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -30,4 +33,12 @@ public interface BottledUnitRepository extends JpaRepository<BottledUnit, UUID> 
     long countByBottlingBatchIdAndStatus(@Param("bottlingBatchId") UUID bottlingBatchId, @Param("status") String status);
 
     boolean existsByUnitCode(String unitCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM BottledUnit u WHERE u.bottlingBatch.id = :bottlingBatchId AND u.status = :status ORDER BY u.unitCode ASC")
+    List<BottledUnit> findAvailableForReservation(
+            @Param("bottlingBatchId") UUID bottlingBatchId,
+            @Param("status") BottledUnitStatus status,
+            org.springframework.data.domain.Pageable pageable
+    );
 }

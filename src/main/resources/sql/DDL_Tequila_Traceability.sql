@@ -416,6 +416,31 @@ CREATE TABLE shipment_document (
 );
 
 -- ============================================================
+-- Entidad: shipment_unit
+-- Descripción: Asociación individual de unidades embotelladas (bottled_unit) a un embarque.
+-- Soporta trazabilidad unitaria y reservas sin eliminación física (NFR-09).
+-- ============================================================
+CREATE TABLE shipment_unit (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    shipment_id         uuid NOT NULL REFERENCES shipment(id) ON DELETE RESTRICT,
+    bottled_unit_id     uuid NOT NULL REFERENCES bottled_unit(id) ON DELETE RESTRICT,
+    assigned_at         timestamptz NOT NULL DEFAULT now(),
+    released_at         timestamptz,
+    CHECK (released_at IS NULL OR released_at >= assigned_at)
+);
+
+CREATE UNIQUE INDEX uq_shipment_unit_active_bottle
+ON shipment_unit(bottled_unit_id)
+WHERE released_at IS NULL;
+
+CREATE INDEX idx_shipment_unit_shipment_active
+ON shipment_unit(shipment_id)
+WHERE released_at IS NULL;
+
+CREATE INDEX idx_shipment_unit_bottle_history
+ON shipment_unit(bottled_unit_id, assigned_at DESC);
+
+-- ============================================================
 -- Entidad: inventory_location
 -- Descripción: Catálogo de ubicaciones físicas de inventario. Representa almacenes, bodegas u otras zonas donde puede existir producto disponible.
 -- ============================================================
