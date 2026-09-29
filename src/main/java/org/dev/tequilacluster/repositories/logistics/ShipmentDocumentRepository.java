@@ -1,0 +1,19 @@
+package org.dev.tequilacluster.repositories.logistics;
+
+import org.dev.tequilacluster.models.logistics.ShipmentDocument;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.UUID;
+
+/** FR-29/RB-402: documentos cargados por embarque; validez requerida antes de salir de PLANNED. */
+public interface ShipmentDocumentRepository extends JpaRepository<ShipmentDocument, UUID> {
+
+    List<ShipmentDocument> findByShipment_Id(UUID shipmentId);
+
+    List<ShipmentDocument> findByShipment_IdAndValidTrue(UUID shipmentId);
+
+    List<ShipmentDocument> findByDocumentType_Id(UUID documentTypeId);
+
+    boolean existsByShipment_IdAndDocumentType_IdAndDocumentNumber(UUID shipmentId, UUID documentTypeId, String documentNumber);
+}
