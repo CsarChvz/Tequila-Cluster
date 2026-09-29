@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,4 +42,14 @@ public interface BottledUnitRepository extends JpaRepository<BottledUnit, UUID> 
             @Param("status") BottledUnitStatus status,
             org.springframework.data.domain.Pageable pageable
     );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM BottledUnit u WHERE u.id IN :ids ORDER BY u.id ASC")
+    List<BottledUnit> findAllByIdInForUpdate(@Param("ids") Collection<UUID> ids);
+
+    @Query("SELECT u.id FROM BottledUnit u WHERE u.bottlingBatch.id IN :bottlingBatchIds ORDER BY u.id ASC")
+    List<UUID> findIdsByBottlingBatchIdIn(@Param("bottlingBatchIds") Collection<UUID> bottlingBatchIds);
+
+    @Query("SELECT DISTINCT u.bottlingBatch.id FROM BottledUnit u WHERE u.id IN :ids")
+    List<UUID> findDistinctBottlingBatchIdsByUnitIds(@Param("ids") Collection<UUID> ids);
 }

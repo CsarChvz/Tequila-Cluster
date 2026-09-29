@@ -12,5 +12,7 @@ public interface RecallUnitRepository extends JpaRepository<RecallUnit, RecallUn
 
     List<RecallUnit> findByRecall_Id(UUID recallId);
 
+    long countByRecall_Id(UUID recallId);
+
     List<RecallUnit> findByBottledUnit_Id(UUID bottledUnitId);
 }
