@@ -15,4 +15,18 @@ public interface JimaBatchRepository extends JpaRepository<JimaBatch, UUID> {
     List<JimaBatch> findBySupplier_Id(UUID supplierId);
 
     List<JimaBatch> findByHarvestDateBetween(LocalDate from, LocalDate to);
+
+    @org.springframework.data.jpa.repository.Query("SELECT jb FROM JimaBatch jb " +
+            "JOIN FETCH jb.batch b JOIN FETCH b.processStage " +
+            "JOIN FETCH jb.field f JOIN FETCH f.authorizedArea " +
+            "JOIN FETCH jb.supplier " +
+            "WHERE jb.batchId IN :batchIds")
+    List<JimaBatch> findWithDetailsByBatchIdIn(@org.springframework.data.repository.query.Param("batchIds") java.util.Collection<UUID> batchIds);
+
+    @org.springframework.data.jpa.repository.Query("SELECT jb FROM JimaBatch jb " +
+            "JOIN FETCH jb.batch b JOIN FETCH b.processStage " +
+            "JOIN FETCH jb.field f JOIN FETCH f.authorizedArea " +
+            "JOIN FETCH jb.supplier " +
+            "WHERE jb.batchId = :batchId")
+    java.util.Optional<JimaBatch> findWithDetailsByBatchId(@org.springframework.data.repository.query.Param("batchId") UUID batchId);
 }
