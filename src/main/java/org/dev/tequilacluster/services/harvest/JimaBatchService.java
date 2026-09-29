@@ -27,6 +27,8 @@ import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.services.shared.BatchLifecycleService;
 import org.dev.tequilacluster.services.shared.TraceabilityCodeGenerator;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ import java.util.UUID;
 @Service
 public class JimaBatchService {
 
+    private static final Logger log = LoggerFactory.getLogger(JimaBatchService.class);
     private static final BigDecimal DEFAULT_YIELD_FACTOR = new BigDecimal("0.12");
 
     private final BatchRepository batchRepository;
@@ -90,6 +93,8 @@ public class JimaBatchService {
 
     @Transactional
     public JimaBatchResponse create(JimaBatchCreateRequest request, UUID currentUserId) {
+        log.debug("Creating harvest batch: fieldId={} supplierId={} totalWeightKg={} user={}",
+                request.fieldId(), request.supplierId(), request.totalWeightKg(), currentUserId);
         AgaveField field = agaveFieldRepository.findById(request.fieldId())
                 .orElseThrow(() -> NotFoundException.of("AgaveField", request.fieldId()));
 
@@ -108,6 +113,7 @@ public class JimaBatchService {
         if (!Boolean.TRUE.equals(supplier.getActive())) {
             alertService.raiseForBatch(batch.getId(), "SUPPLIER_INACTIVE", AlertSeverity.CRITICAL,
                     "Supplier %s is inactive or not registered".formatted(request.supplierId()));
+            log.warn("RB-102: rejected harvest batch {} — supplier {} is inactive", batch.getId(), request.supplierId());
             throw new BusinessRuleViolationException("RB-102",
                     "Supplier is not registered or inactive: " + request.supplierId());
         }
@@ -146,6 +152,7 @@ public class JimaBatchService {
         batchLifecycleService.start(batch.getId(), currentUserId);
         auditLogService.record(currentUserId, "CREATE", "jima_batch", batch.getId(), null, null);
 
+        log.info("Harvest batch {} ({}) created, transport permit {}", batch.getId(), batch.getTraceabilityCode(), permit.getPermitNumber());
         return toResponse(batch, jimaBatch, permit, capacityWarning);
     }
 
@@ -179,6 +186,7 @@ public class JimaBatchService {
         boolean afterStart = area.getValidFrom() == null || !today.isBefore(area.getValidFrom());
         boolean beforeEnd = area.getValidTo() == null || !today.isAfter(area.getValidTo());
         if (!active || !afterStart || !beforeEnd) {
+            log.warn("RB-101: rejected harvest batch — authorized area {} is inactive or out of validity range", area.getCode());
             throw new BusinessRuleViolationException("RB-101",
                     "Agave field belongs to an inactive or expired authorized production area: " + area.getCode());
         }

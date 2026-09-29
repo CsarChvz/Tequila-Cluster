@@ -7,6 +7,8 @@ import org.dev.tequilacluster.models.catalogs.ValidationRule;
 import org.dev.tequilacluster.models.shared.ProcessStage;
 import org.dev.tequilacluster.repositories.catalogs.ValidationRuleRepository;
 import org.dev.tequilacluster.repositories.shared.ProcessStageRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,8 @@ import java.util.UUID;
  */
 @Service
 public class ValidationRuleService {
+
+    private static final Logger log = LoggerFactory.getLogger(ValidationRuleService.class);
 
     private final ValidationRuleRepository repository;
     private final ProcessStageRepository processStageRepository;
@@ -43,13 +47,17 @@ public class ValidationRuleService {
         ValidationRule rule = new ValidationRule();
         applyRequest(rule, request);
         rule.setActive(true);
-        return toResponse(repository.save(rule));
+        ValidationRuleResponse response = toResponse(repository.save(rule));
+        log.info("Validation rule created: {}/{} ({})", response.stageCode(), response.parameterCode(), response.id());
+        return response;
     }
 
     public ValidationRuleResponse update(UUID id, ValidationRuleRequest request) {
         ValidationRule rule = findOrThrow(id);
         applyRequest(rule, request);
-        return toResponse(repository.save(rule));
+        ValidationRuleResponse response = toResponse(repository.save(rule));
+        log.info("Validation rule updated: {}/{} ({})", response.stageCode(), response.parameterCode(), id);
+        return response;
     }
 
     /** Catalogs are never hard-deleted (NFR-09 spirit) — deactivate instead. */
@@ -57,6 +65,7 @@ public class ValidationRuleService {
         ValidationRule rule = findOrThrow(id);
         rule.setActive(false);
         repository.save(rule);
+        log.info("Validation rule deactivated: {} ({})", rule.getParameterCode(), id);
     }
 
     private ValidationRule findOrThrow(UUID id) {

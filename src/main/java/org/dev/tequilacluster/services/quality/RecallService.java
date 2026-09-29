@@ -32,6 +32,8 @@ import org.dev.tequilacluster.repositories.shared.BatchRepository;
 import org.dev.tequilacluster.services.security.StagePermissionService;
 import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.utils.security.StageAction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +54,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class RecallService {
+
+    private static final Logger log = LoggerFactory.getLogger(RecallService.class);
 
     private final RecallRepository recallRepository;
     private final RecallUnitRepository recallUnitRepository;
@@ -102,6 +106,7 @@ public class RecallService {
      */
     @Transactional
     public RecallResponse create(RecallCreateRequest request, UUID currentUserId, List<String> roleCodes) {
+        log.debug("Creating {} recall from source batch {}, user={}", request.recallType(), request.sourceBatchId(), currentUserId);
         Batch sourceBatch = batchRepository.findById(request.sourceBatchId())
                 .orElseThrow(() -> NotFoundException.of("Batch", request.sourceBatchId()));
 
@@ -267,6 +272,8 @@ public class RecallService {
         after.put("affectedUnitsCount", bottles.size());
 
         auditLogService.record(currentUserId, "CREATE", "recall", recall.getId(), null, toJson(after));
+        log.error("Recall {} ({}) started on batch {}: {} units affected — {}",
+                recall.getId(), recall.getRecallType(), sourceBatch.getId(), bottles.size(), recall.getReason());
 
         return toResponse(recall, bottles.size());
     }
@@ -362,6 +369,7 @@ public class RecallService {
         RecallStatus target = request.status();
 
         if (current == target) {
+            log.warn("RB-407: rejected no-op status update for recall {} (already {})", id, current);
             throw new BusinessRuleViolationException("RB-407",
                     "Recall is already in status: " + current);
         }
@@ -373,6 +381,7 @@ public class RecallService {
         };
 
         if (!validTransition) {
+            log.warn("RB-407: rejected invalid recall status transition {} -> {} for {}", current, target, id);
             throw new BusinessRuleViolationException("RB-407",
                     "Invalid status transition from " + current + " to " + target);
         }
@@ -408,6 +417,7 @@ public class RecallService {
         }
 
         auditLogService.record(currentUserId, "UPDATE_STATUS", "recall", recall.getId(), toJson(before), toJson(after));
+        log.info("Recall {} status changed {} -> {} by user {}", id, current, target, currentUserId);
 
         int count = (int) recallUnitRepository.countByRecall_Id(id);
         return toResponse(recall, count);

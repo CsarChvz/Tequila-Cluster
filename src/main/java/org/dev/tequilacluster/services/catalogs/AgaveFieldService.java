@@ -8,6 +8,8 @@ import org.dev.tequilacluster.models.catalogs.AgaveField;
 import org.dev.tequilacluster.models.catalogs.AuthorizedProductionArea;
 import org.dev.tequilacluster.repositories.catalogs.AgaveFieldRepository;
 import org.dev.tequilacluster.repositories.catalogs.AuthorizedProductionAreaRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +19,8 @@ import java.util.UUID;
 /** FR-04/FR-06: Administrator CRUD for agave fields, linked to an authorized production area. */
 @Service
 public class AgaveFieldService {
+
+    private static final Logger log = LoggerFactory.getLogger(AgaveFieldService.class);
 
     private final AgaveFieldRepository repository;
     private final AuthorizedProductionAreaRepository authorizedProductionAreaRepository;
@@ -46,18 +50,23 @@ public class AgaveFieldService {
 
     public AgaveFieldResponse create(AgaveFieldRequest request) {
         if (repository.existsByFieldCode(request.fieldCode())) {
+            log.warn("FR-06: rejected duplicate agave field code {}", request.fieldCode());
             throw new BusinessRuleViolationException("FR-06", "Agave field code already exists: " + request.fieldCode());
         }
         AgaveField field = new AgaveField();
         applyRequest(field, request);
         field.setActive(true);
-        return toResponse(repository.save(field));
+        AgaveFieldResponse response = toResponse(repository.save(field));
+        log.info("Agave field created: {} ({})", response.fieldCode(), response.id());
+        return response;
     }
 
     public AgaveFieldResponse update(UUID id, AgaveFieldRequest request) {
         AgaveField field = findOrThrow(id);
         applyRequest(field, request);
-        return toResponse(repository.save(field));
+        AgaveFieldResponse response = toResponse(repository.save(field));
+        log.info("Agave field updated: {} ({})", response.fieldCode(), id);
+        return response;
     }
 
     /** Catalogs are never hard-deleted (NFR-09 spirit) — deactivate instead. */
@@ -65,6 +74,7 @@ public class AgaveFieldService {
         AgaveField field = findOrThrow(id);
         field.setActive(false);
         repository.save(field);
+        log.info("Agave field deactivated: {} ({})", field.getFieldCode(), id);
     }
 
     private AgaveField findOrThrow(UUID id) {

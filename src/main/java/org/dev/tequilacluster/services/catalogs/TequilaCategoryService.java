@@ -6,6 +6,8 @@ import org.dev.tequilacluster.exceptions.BusinessRuleViolationException;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.models.catalogs.TequilaCategory;
 import org.dev.tequilacluster.repositories.catalogs.TequilaCategoryRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,6 +16,8 @@ import java.util.UUID;
 /** FR-04/RB-205/RB-206: Administrator CRUD for tequila categories and minimum maturation days. */
 @Service
 public class TequilaCategoryService {
+
+    private static final Logger log = LoggerFactory.getLogger(TequilaCategoryService.class);
 
     private final TequilaCategoryRepository repository;
 
@@ -31,18 +35,23 @@ public class TequilaCategoryService {
 
     public TequilaCategoryResponse create(TequilaCategoryRequest request) {
         if (repository.findByCode(request.code()).isPresent()) {
+            log.warn("RB-206: rejected duplicate tequila category code {}", request.code());
             throw new BusinessRuleViolationException("RB-206", "Tequila category code already exists: " + request.code());
         }
         TequilaCategory category = new TequilaCategory();
         applyRequest(category, request);
         category.setActive(true);
-        return toResponse(repository.save(category));
+        TequilaCategoryResponse response = toResponse(repository.save(category));
+        log.info("Tequila category created: {} ({})", response.code(), response.id());
+        return response;
     }
 
     public TequilaCategoryResponse update(UUID id, TequilaCategoryRequest request) {
         TequilaCategory category = findOrThrow(id);
         applyRequest(category, request);
-        return toResponse(repository.save(category));
+        TequilaCategoryResponse response = toResponse(repository.save(category));
+        log.info("Tequila category updated: {} ({})", response.code(), id);
+        return response;
     }
 
     /** Catalogs are never hard-deleted (NFR-09 spirit) — deactivate instead. */
@@ -50,6 +59,7 @@ public class TequilaCategoryService {
         TequilaCategory category = findOrThrow(id);
         category.setActive(false);
         repository.save(category);
+        log.info("Tequila category deactivated: {} ({})", category.getCode(), id);
     }
 
     private TequilaCategory findOrThrow(UUID id) {

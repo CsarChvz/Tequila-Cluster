@@ -45,6 +45,8 @@ import org.dev.tequilacluster.services.security.StagePermissionService;
 import org.dev.tequilacluster.services.shared.AlertService;
 import org.dev.tequilacluster.utils.security.StageAction;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +68,8 @@ import java.util.UUID;
  */
 @Service
 public class TraceabilityQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(TraceabilityQueryService.class);
 
     private final BatchRepository batchRepository;
     private final BatchLineageRepository batchLineageRepository;
@@ -121,9 +125,11 @@ public class TraceabilityQueryService {
     @Transactional(readOnly = true)
     public BackwardTraceabilityResponse backward(String code, List<String> roleCodes) {
         if (code == null || code.trim().isEmpty()) {
+            log.warn("RB-501: rejected backward traceability query — blank code");
             throw new BusinessRuleViolationException("RB-501", "Traceability code or unit code cannot be blank");
         }
         String trimmedCode = code.trim();
+        log.debug("Backward traceability query for code {}", trimmedCode);
 
         String searchType;
         Batch targetBatch;
@@ -236,6 +242,7 @@ public class TraceabilityQueryService {
 
         TraceabilityNodeDto targetBatchNode = toNodeDto(targetBatch, volumes.get(targetBatch.getId()));
 
+        log.debug("Backward traceability for {} resolved {} node(s), {} harvest origin(s)", trimmedCode, nodes.size(), harvestOrigins.size());
         return new BackwardTraceabilityResponse(
                 trimmedCode,
                 searchType,
@@ -255,9 +262,11 @@ public class TraceabilityQueryService {
     public ForwardTraceabilityResponse forward(UUID batchId, UUID supplierId, UUID fieldId, List<String> roleCodes) {
         int count = (batchId != null ? 1 : 0) + (supplierId != null ? 1 : 0) + (fieldId != null ? 1 : 0);
         if (count != 1) {
+            log.warn("RB-502: rejected forward traceability query — expected exactly one origin parameter, got {}", count);
             throw new BusinessRuleViolationException("RB-502",
                     "Exactly one origin parameter must be provided: batchId, supplierId, or fieldId");
         }
+        log.debug("Forward traceability query: batchId={} supplierId={} fieldId={}", batchId, supplierId, fieldId);
 
         String originType;
         UUID originId;
@@ -407,9 +416,11 @@ public class TraceabilityQueryService {
     @Transactional(readOnly = true)
     public BatchHistoryResponse getHistory(String traceabilityCode, List<String> roleCodes) {
         if (traceabilityCode == null || traceabilityCode.trim().isEmpty()) {
+            log.warn("RB-501: rejected history query — blank code");
             throw new BusinessRuleViolationException("RB-501", "Traceability code cannot be blank");
         }
         String trimmedCode = traceabilityCode.trim();
+        log.debug("History query for batch {}", trimmedCode);
 
         Batch batch = batchRepository.findByTraceabilityCodeWithStage(trimmedCode)
                 .orElseThrow(() -> NotFoundException.of("Batch", trimmedCode));

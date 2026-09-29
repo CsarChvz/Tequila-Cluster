@@ -31,6 +31,8 @@ import org.dev.tequilacluster.repositories.quality.RecallRepository;
 import org.dev.tequilacluster.repositories.quality.RecallUnitRepository;
 import org.dev.tequilacluster.repositories.security.AppUserRepository;
 import org.dev.tequilacluster.services.shared.AuditLogService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +45,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class InventoryMovementService {
+
+    private static final Logger log = LoggerFactory.getLogger(InventoryMovementService.class);
 
     private final InventoryMovementRepository inventoryMovementRepository;
     private final InventoryLocationRepository inventoryLocationRepository;
@@ -90,6 +94,8 @@ public class InventoryMovementService {
      */
     @Transactional
     public InventoryMovementResponse create(InventoryMovementCreateRequest request, UUID currentUserId) {
+        log.debug("Recording inventory movement: type={} batch={} location={} change={}",
+                request.movementType(), request.bottlingBatchId(), request.locationId(), request.quantityChangeUnits());
         if (request.bottlingBatchId() == null) {
             throw new BusinessRuleViolationException("RB-506", "bottlingBatchId is required");
         }
@@ -257,6 +263,8 @@ public class InventoryMovementService {
         int currentStock = inventoryMovementRepository.sumQuantityChangeUnitsByBottlingBatchIdAndLocationId(
                 request.bottlingBatchId(), request.locationId());
         if (change < 0 && (currentStock + change) < 0) {
+            log.warn("RB-506: rejected movement — insufficient stock for batch {} in location {}: current={}, change={}",
+                    request.bottlingBatchId(), location.getCode(), currentStock, change);
             throw new BusinessRuleViolationException("RB-506",
                     "Insufficient inventory stock in location " + location.getCode() + ": current=" + currentStock + ", change=" + change);
         }
@@ -289,6 +297,8 @@ public class InventoryMovementService {
         after.put("resultingStockLevel", resultingStockLevel);
 
         auditLogService.record(currentUserId, "CREATE", "inventory_movement", saved.getId(), null, toJson(after));
+        log.info("Inventory movement {} recorded: {} {} at {} -> resulting stock {}",
+                saved.getId(), saved.getMovementType(), change, location.getCode(), resultingStockLevel);
 
         return toResponse(saved);
     }
@@ -385,6 +395,12 @@ public class InventoryMovementService {
 
         // 6. Indicador global de discrepancia
         boolean hasDiscrepancy = (warehouseDiscrepancyUnits != 0) || (productionDiscrepancyUnits != 0);
+        if (hasDiscrepancy) {
+            log.warn("RB-506: reconciliation discrepancy on batch {} — warehouse={}, production={}",
+                    bottlingBatchId, warehouseDiscrepancyUnits, productionDiscrepancyUnits);
+        } else {
+            log.debug("Reconciliation for batch {} shows no discrepancy", bottlingBatchId);
+        }
 
         return new InventoryReconciliationResponse(
                 bottlingBatch.getId(),

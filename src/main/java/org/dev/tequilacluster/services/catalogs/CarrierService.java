@@ -5,6 +5,8 @@ import org.dev.tequilacluster.dtos.catalogs.CarrierResponse;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.models.catalogs.Carrier;
 import org.dev.tequilacluster.repositories.catalogs.CarrierRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,6 +15,8 @@ import java.util.UUID;
 /** FR-04/FR-28: Administrator CRUD for carriers. */
 @Service
 public class CarrierService {
+
+    private static final Logger log = LoggerFactory.getLogger(CarrierService.class);
 
     private final CarrierRepository repository;
 
@@ -32,13 +36,17 @@ public class CarrierService {
         Carrier carrier = new Carrier();
         applyRequest(carrier, request);
         carrier.setActive(true);
-        return toResponse(repository.save(carrier));
+        CarrierResponse response = toResponse(repository.save(carrier));
+        log.info("Carrier created: {} ({})", response.name(), response.id());
+        return response;
     }
 
     public CarrierResponse update(UUID id, CarrierRequest request) {
         Carrier carrier = findOrThrow(id);
         applyRequest(carrier, request);
-        return toResponse(repository.save(carrier));
+        CarrierResponse response = toResponse(repository.save(carrier));
+        log.info("Carrier updated: {} ({})", response.name(), id);
+        return response;
     }
 
     /** Catalogs are never hard-deleted (NFR-09 spirit) — deactivate instead. */
@@ -46,6 +54,7 @@ public class CarrierService {
         Carrier carrier = findOrThrow(id);
         carrier.setActive(false);
         repository.save(carrier);
+        log.info("Carrier deactivated: {} ({})", carrier.getName(), id);
     }
 
     private Carrier findOrThrow(UUID id) {

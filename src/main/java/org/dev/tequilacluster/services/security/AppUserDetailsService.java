@@ -6,6 +6,8 @@ import org.dev.tequilacluster.repositories.security.AppUserRepository;
 import org.dev.tequilacluster.repositories.security.RoleRepository;
 import org.dev.tequilacluster.repositories.security.UserRoleRepository;
 import org.dev.tequilacluster.utils.security.AppUserPrincipal;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -17,6 +19,8 @@ import java.util.UUID;
 /** Loads a user and its role codes for authentication (FR-01) and JWT claim population. */
 @Service
 public class AppUserDetailsService implements UserDetailsService {
+
+    private static final Logger log = LoggerFactory.getLogger(AppUserDetailsService.class);
 
     private final AppUserRepository appUserRepository;
     private final UserRoleRepository userRoleRepository;
@@ -31,8 +35,16 @@ public class AppUserDetailsService implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         AppUser user = appUserRepository.findByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("Unknown user: " + username));
+                .orElseThrow(() -> {
+                    log.warn("Login attempt for unknown username: {}", username);
+                    return new UsernameNotFoundException("Unknown user: " + username);
+                });
         List<String> roleCodes = roleCodesOf(user.getId());
+        if (!Boolean.TRUE.equals(user.getActive())) {
+            log.warn("Login attempt for inactive user: {}", username);
+        } else {
+            log.debug("Loaded user {} for authentication, roles={}", username, roleCodes);
+        }
         return new AppUserPrincipal(user.getId(), user.getUsername(), user.getPasswordHash(), Boolean.TRUE.equals(user.getActive()), roleCodes);
     }
 

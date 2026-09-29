@@ -24,6 +24,8 @@ import org.dev.tequilacluster.services.shared.TraceabilityCodeGenerator;
 import org.dev.tequilacluster.exceptions.BusinessRuleViolationException;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class DistillationBatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(DistillationBatchService.class);
 
     private final BatchRepository batchRepository;
     private final DistillationBatchRepository distillationBatchRepository;
@@ -78,11 +82,13 @@ public class DistillationBatchService {
 
     @Transactional
     public DistillationBatchResponse create(DistillationBatchCreateRequest request, UUID currentUserId) {
+        log.debug("Creating distillation batch from {} harvest batch(es), user={}", request.sourceHarvestBatches().size(), currentUserId);
         // FR-12 / RB-201
         for (var item : request.sourceHarvestBatches()) {
             Batch batch = batchRepository.findById(item.harvestBatchId())
                     .orElseThrow(() -> NotFoundException.of("Batch", item.harvestBatchId()));
             if (batch.getStatus() != BatchStatus.COMPLETED || !batch.getProcessStage().getCode().equals(ProcessStageCodes.HARVEST)) {
+                log.warn("RB-201: rejected distillation — source harvest batch {} is not COMPLETED", item.harvestBatchId());
                 throw new BusinessRuleViolationException("RB-201", "Source harvest batch is not COMPLETED: " + item.harvestBatchId());
             }
         }
@@ -90,12 +96,14 @@ public class DistillationBatchService {
         // FR-15 / RB-202
         BigDecimal sumCuts = request.headsVolumeL().add(request.heartsVolumeL()).add(request.tailsVolumeL());
         if (sumCuts.compareTo(request.totalDistilledVolumeL()) > 0) {
+            log.warn("RB-202: rejected distillation — sum of cuts {} exceeds total distilled volume {}", sumCuts, request.totalDistilledVolumeL());
             throw new BusinessRuleViolationException("RB-202", "Sum of cuts exceeds total distilled volume");
         }
 
         // FR-19 / RB-205
         if (request.maturationRequired()) {
             if (request.maturationStartDate() == null || request.requiredMaturationDays() == null || request.requiredMaturationDays() <= 0) {
+                log.warn("RB-205: rejected distillation — maturation required but missing start date or days");
                 throw new BusinessRuleViolationException("RB-205", "Maturation requires start date and days > 0");
             }
         }
@@ -191,6 +199,7 @@ public class DistillationBatchService {
         batchLifecycleService.start(batchId, currentUserId);
         auditLogService.record(currentUserId, "CREATE", "distillation_batch", batchId, null, null);
 
+        log.info("Distillation batch {} ({}) created from {}", batchId, batch.getTraceabilityCode(), request.sourceHarvestBatches().size());
         List<String> parentCodes = getSourceCodes(batchId);
         return toResponse(batch, db, parentCodes);
     }
@@ -205,6 +214,7 @@ public class DistillationBatchService {
     @Transactional
     public void complete(UUID batchId, UUID currentUserId) {
         batchLifecycleService.complete(batchId, currentUserId);
+        log.info("Distillation batch {} completed by user {}", batchId, currentUserId);
     }
 
     /** Backs the distillation dashboard table — every distillation batch, newest first. */
@@ -222,6 +232,7 @@ public class DistillationBatchService {
                     boolean belowMin = rule.getMinValue() != null && value.compareTo(rule.getMinValue()) < 0;
                     boolean aboveMax = rule.getMaxValue() != null && value.compareTo(rule.getMaxValue()) > 0;
                     if (belowMin || aboveMax) {
+                        log.debug("Batch {} param {} value {} outside range [{}, {}]", batchId, paramCode, value, rule.getMinValue(), rule.getMaxValue());
                         alertService.raiseForBatch(batchId, paramCode, severity, msgTemplate.formatted(value));
                     }
                 });

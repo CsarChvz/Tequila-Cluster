@@ -5,6 +5,8 @@ import org.dev.tequilacluster.dtos.catalogs.SupplierResponse;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.models.catalogs.Supplier;
 import org.dev.tequilacluster.repositories.catalogs.SupplierRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -19,6 +21,8 @@ import java.util.UUID;
  */
 @Service
 public class SupplierService {
+
+    private static final Logger log = LoggerFactory.getLogger(SupplierService.class);
 
     private final SupplierRepository supplierRepository;
 
@@ -39,20 +43,28 @@ public class SupplierService {
         applyRequest(supplier, request);
         supplier.setActive(true);
         supplier.setCreatedAt(Instant.now());
-        return toResponse(supplierRepository.save(supplier));
+        SupplierResponse response = toResponse(supplierRepository.save(supplier));
+        log.info("Supplier created: {} ({})", response.supplierCode(), response.id());
+        return response;
     }
 
     public SupplierResponse update(UUID id, SupplierRequest request) {
         Supplier supplier = findOrThrow(id);
         applyRequest(supplier, request);
-        return toResponse(supplierRepository.save(supplier));
+        SupplierResponse response = toResponse(supplierRepository.save(supplier));
+        log.info("Supplier updated: {} ({})", response.supplierCode(), id);
+        return response;
     }
 
     /** Catalogs are never hard-deleted (NFR-09 spirit) — deactivate instead. */
     public void deactivate(UUID id) {
         Supplier supplier = findOrThrow(id);
+        if (!Boolean.TRUE.equals(supplier.getActive())) {
+            log.warn("RB-102: supplier {} was already inactive", id);
+        }
         supplier.setActive(false);
         supplierRepository.save(supplier);
+        log.info("Supplier deactivated: {} ({})", supplier.getSupplierCode(), id);
     }
 
     private Supplier findOrThrow(UUID id) {

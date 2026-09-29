@@ -5,6 +5,8 @@ import org.dev.tequilacluster.models.security.Role;
 import org.dev.tequilacluster.repositories.security.RoleRepository;
 import org.dev.tequilacluster.repositories.security.RoleStagePermissionRepository;
 import org.dev.tequilacluster.utils.security.StageAction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 @Service
 public class StagePermissionService {
 
+    private static final Logger log = LoggerFactory.getLogger(StagePermissionService.class);
+
     private final RoleRepository roleRepository;
     private final RoleStagePermissionRepository roleStagePermissionRepository;
 
@@ -37,8 +41,10 @@ public class StagePermissionService {
 
     public void assertAllowed(List<String> roleCodes, String stageCode, StageAction action) {
         if (!isAllowed(roleCodes, stageCode, action)) {
+            log.warn("RB-504: denied {} on stage {} for roles {}", action, stageCode, roleCodes);
             throw new ForbiddenStageActionException(stageCode, action.name());
         }
+        log.debug("RB-504: allowed {} on stage {} for roles {}", action, stageCode, roleCodes);
     }
 
     public Set<String> getAllowedStages(List<String> roleCodes, StageAction action) {

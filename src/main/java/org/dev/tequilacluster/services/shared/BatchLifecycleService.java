@@ -11,6 +11,8 @@ import org.dev.tequilacluster.repositories.security.AppUserRepository;
 import org.dev.tequilacluster.repositories.shared.BatchRepository;
 import org.dev.tequilacluster.repositories.shared.BatchTransitionHistoryRepository;
 import org.dev.tequilacluster.repositories.shared.ProcessAlertRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,8 @@ import java.util.UUID;
  */
 @Service
 public class BatchLifecycleService {
+
+    private static final Logger log = LoggerFactory.getLogger(BatchLifecycleService.class);
 
     private final BatchRepository batchRepository;
     private final BatchTransitionHistoryRepository transitionHistoryRepository;
@@ -63,16 +67,19 @@ public class BatchLifecycleService {
                 .findByBatch_IdAndSeverityAndResolvedAtIsNull(batchId, AlertSeverity.CRITICAL)
                 .isEmpty();
         if (hasOpenCriticalAlert) {
+            log.warn("RB-001: refusing to complete batch {} — an unresolved CRITICAL alert is open", batchId);
             throw new BusinessRuleViolationException("RB-001",
                     "Batch cannot be completed while a CRITICAL alert is unresolved: " + batchId);
         }
         transition(batchId, BatchStatus.COMPLETED, changedBy, "All stage validations passed");
+        log.info("Batch {} completed by user {}", batchId, changedBy);
     }
 
     /** RB-503 / NFR-09: batches are never deleted, only cancelled with a mandatory reason. */
     @Transactional
     public void cancel(UUID batchId, UUID changedBy, String reason) {
         if (reason == null || reason.isBlank()) {
+            log.warn("RB-503: rejected cancel request for batch {} — no reason given", batchId);
             throw new BusinessRuleViolationException("RB-503", "Cancelling a batch requires a reason");
         }
         Batch batch = getOrThrow(batchId);
@@ -86,6 +93,7 @@ public class BatchLifecycleService {
 
         recordTransition(batch, from, BatchStatus.CANCELLED, changedBy, reason);
         auditLogService.record(changedBy, "CANCEL", "batch", batchId, null, null);
+        log.info("Batch {} cancelled by user {} ({} -> CANCELLED), reason: {}", batchId, changedBy, from, reason);
     }
 
     private void transition(UUID batchId, BatchStatus to, UUID changedBy, String reason) {
@@ -101,11 +109,13 @@ public class BatchLifecycleService {
 
         recordTransition(batch, from, to, changedBy, reason);
         auditLogService.record(changedBy, "TRANSITION", "batch", batchId, null, null);
+        log.debug("Batch {} transitioned {} -> {} (reason: {})", batchId, from, to, reason);
     }
 
     private void assertNotCompleted(Batch batch) {
         // NFR-08 / RB-002: once COMPLETED, a batch's records are read-only for every role.
         if (batch.getStatus() == BatchStatus.COMPLETED) {
+            log.warn("RB-002: rejected mutation of read-only COMPLETED batch {}", batch.getId());
             throw new BusinessRuleViolationException("RB-002", "Batch is COMPLETED and read-only: " + batch.getId());
         }
     }

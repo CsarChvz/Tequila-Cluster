@@ -45,6 +45,8 @@ import org.dev.tequilacluster.repositories.shared.ProcessAlertRepository;
 import org.dev.tequilacluster.services.shared.AlertService;
 import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,6 +67,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class ShipmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(ShipmentService.class);
 
     private final ShipmentRepository shipmentRepository;
     private final ShipmentItemRepository shipmentItemRepository;
@@ -125,14 +129,17 @@ public class ShipmentService {
      */
     @Transactional
     public ShipmentResponse create(ShipmentCreateRequest request, UUID currentUserId) {
+        log.debug("Creating shipment {}, {} item(s), user={}", request.shipmentNumber(), request.items().size(), currentUserId);
         // RB-403: departureAt <= estimatedArrivalAt
         if (request.departureAt().isAfter(request.estimatedArrivalAt())) {
+            log.warn("RB-403: rejected shipment {} — departure after estimated arrival", request.shipmentNumber());
             throw new BusinessRuleViolationException("RB-403",
                     "Departure date must be before or equal to estimated arrival date");
         }
 
         // RB-403: shipment_number único
         if (shipmentRepository.existsByShipmentNumber(request.shipmentNumber())) {
+            log.warn("RB-403: rejected shipment — number already exists: {}", request.shipmentNumber());
             throw new BusinessRuleViolationException("RB-403",
                     "Shipment number already exists: " + request.shipmentNumber());
         }
@@ -191,6 +198,7 @@ public class ShipmentService {
             // FR-26 / RB-401: solo bottling batches COMPLETED
             Batch parentBatch = bottlingBatch.getBatch();
             if (parentBatch.getStatus() != BatchStatus.COMPLETED) {
+                log.warn("RB-401: rejected shipment — source bottling batch {} is not COMPLETED", batchId);
                 throw new BusinessRuleViolationException("RB-401",
                         "Source bottling batch is not COMPLETED: " + batchId);
             }
@@ -206,6 +214,8 @@ public class ShipmentService {
 
             // FR-27 / RB-401 / RB-406: rechazar si hay menos botellas físicas disponibles que las solicitadas
             if (availableBottles.size() < requestedQuantity) {
+                log.warn("RB-401: rejected shipment — requested {} units but only {} available for batch {}",
+                        requestedQuantity, availableBottles.size(), batchId);
                 throw new BusinessRuleViolationException("RB-401",
                         "Requested units (" + requestedQuantity + ") exceeds available units ("
                                 + availableBottles.size() + ") for bottling batch: " + batchId);
@@ -274,6 +284,8 @@ public class ShipmentService {
                 "totalUnitsReserved", totalUnitsReserved
         );
         auditLogService.record(currentUserId, "CREATE", "shipment", shipment.getId(), null, toJson(after));
+        log.info("Shipment {} ({}) created: {} units reserved across {} batch(es)",
+                shipment.getId(), shipment.getShipmentNumber(), totalUnitsReserved, sortedBatchIds.size());
 
         return toResponse(shipment, savedItems, List.of());
     }
@@ -326,6 +338,7 @@ public class ShipmentService {
         after.put("documentNumber", doc.getDocumentNumber());
         after.put("valid", doc.getValid());
         auditLogService.record(currentUserId, "ADD_DOCUMENT", "shipment_document", doc.getId(), null, toJson(after));
+        log.info("Document {} ({}) added to shipment {}", doc.getId(), documentType.getCode(), shipmentId);
 
         return toDocumentResponse(doc);
     }
@@ -341,6 +354,7 @@ public class ShipmentService {
                 .orElseThrow(() -> NotFoundException.of("Shipment", shipmentId));
 
         if (shipment.getStatus() != ShipmentStatus.PLANNED) {
+            log.warn("RB-405: rejected start-transit for shipment {} — status is {}, expected PLANNED", shipmentId, shipment.getStatus());
             throw new BusinessRuleViolationException("RB-405",
                     "Shipment can only transition to IN_TRANSIT from PLANNED. Current status: " + shipment.getStatus());
         }
@@ -359,6 +373,7 @@ public class ShipmentService {
                     .toList();
 
             if (matchingDocs.isEmpty()) {
+                log.warn("RB-402: rejected start-transit for shipment {} — missing required document {}", shipmentId, reqDocType.getCode());
                 throw new BusinessRuleViolationException("RB-402",
                         "Missing required document: " + reqDocType.getName() + " (" + reqDocType.getCode() + ")");
             }
@@ -366,6 +381,7 @@ public class ShipmentService {
             boolean hasValidDoc = matchingDocs.stream()
                     .anyMatch(d -> Boolean.TRUE.equals(d.getValid()));
             if (!hasValidDoc) {
+                log.warn("RB-402: rejected start-transit for shipment {} — document {} present but not valid", shipmentId, reqDocType.getCode());
                 throw new BusinessRuleViolationException("RB-402",
                         "Required document is invalid: " + reqDocType.getName() + " (" + reqDocType.getCode() + ")");
             }
@@ -422,6 +438,7 @@ public class ShipmentService {
         Map<String, Object> before = Map.of("status", ShipmentStatus.PLANNED.name());
         Map<String, Object> after = Map.of("status", ShipmentStatus.IN_TRANSIT.name());
         auditLogService.record(currentUserId, "START_TRANSIT", "shipment", shipment.getId(), toJson(before), toJson(after));
+        log.info("Shipment {} started transit ({} units shipped)", shipmentId, bottlesToShip.size());
 
         return toResponse(shipment, items, uploadedDocs);
     }
@@ -500,6 +517,7 @@ public class ShipmentService {
                 "cancellationReason", reason
         );
         auditLogService.record(currentUserId, "CANCEL", "shipment", shipment.getId(), toJson(before), toJson(after));
+        log.info("Shipment {} cancelled from {} by user {}: {}", shipmentId, previousStatus, currentUserId, reason);
 
         List<ShipmentItem> items = shipmentItemRepository.findByShipment_Id(shipmentId);
         List<ShipmentDocument> documents = shipmentDocumentRepository.findByShipment_Id(shipmentId);
@@ -580,6 +598,7 @@ public class ShipmentService {
                 "deliveredAt", now.toString()
         );
         auditLogService.record(currentUserId, "DELIVER", "shipment", shipment.getId(), toJson(before), toJson(after));
+        log.info("Shipment {} delivered ({} units)", shipmentId, bottlesToDeliver.size());
 
         List<ShipmentDocument> documents = shipmentDocumentRepository.findByShipment_Id(shipmentId);
         return toResponse(shipment, items, documents);
@@ -642,6 +661,7 @@ public class ShipmentService {
                             message
                     );
                     newAlertsCount++;
+                    log.warn("RB-404: shipment {} delayed beyond {}h tolerance — new alert raised", shipment.getShipmentNumber(), toleranceHours);
                     alertItems.add(new ShipmentDelayCheckResponse.ShipmentDelayAlertItem(
                             alert.getId(),
                             shipment.getId(),
@@ -653,6 +673,8 @@ public class ShipmentService {
             }
         }
 
+        log.debug("Delay check: {} in-transit, {} delayed, {} new alerts (tolerance {}h)",
+                inTransitShipments.size(), delayedCount, newAlertsCount, toleranceHours);
         return new ShipmentDelayCheckResponse(
                 inTransitShipments.size(),
                 delayedCount,
