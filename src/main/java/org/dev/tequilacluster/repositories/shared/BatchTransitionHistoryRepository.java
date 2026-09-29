@@ -12,4 +12,11 @@ public interface BatchTransitionHistoryRepository extends JpaRepository<BatchTra
     List<BatchTransitionHistory> findByBatch_IdOrderByChangedAtDesc(UUID batchId);
 
     List<BatchTransitionHistory> findByChangedBy_Id(UUID changedByUserId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT bth FROM BatchTransitionHistory bth " +
+            "LEFT JOIN FETCH bth.fromStage " +
+            "LEFT JOIN FETCH bth.toStage " +
+            "LEFT JOIN FETCH bth.changedBy " +
+            "WHERE bth.batch.id = :batchId ORDER BY bth.changedAt DESC")
+    List<BatchTransitionHistory> findByBatchIdOrderByChangedAtDescWithDetails(@org.springframework.data.repository.query.Param("batchId") UUID batchId);
 }

@@ -13,4 +13,11 @@ public interface ShipmentItemRepository extends JpaRepository<ShipmentItem, Ship
     List<ShipmentItem> findByShipment_Id(UUID shipmentId);
 
     List<ShipmentItem> findByBottlingBatch_Id(UUID bottlingBatchId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT si FROM ShipmentItem si " +
+            "JOIN FETCH si.shipment s " +
+            "LEFT JOIN FETCH s.carrier " +
+            "LEFT JOIN FETCH s.shipmentType " +
+            "WHERE si.bottlingBatch.id IN :bottlingBatchIds")
+    List<ShipmentItem> findWithShipmentByBottlingBatchIdIn(@org.springframework.data.repository.query.Param("bottlingBatchIds") java.util.Collection<UUID> bottlingBatchIds);
 }

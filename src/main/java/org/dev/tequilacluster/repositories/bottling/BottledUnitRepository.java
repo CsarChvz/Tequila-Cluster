@@ -57,4 +57,10 @@ public interface BottledUnitRepository extends JpaRepository<BottledUnit, UUID> 
     List<Object[]> countGroupByStatusForBatch(@Param("bottlingBatchId") UUID bottlingBatchId);
 
     long countByBottlingBatch_Id(UUID bottlingBatchId);
+
+    @Query("SELECT u FROM BottledUnit u JOIN FETCH u.bottlingBatch bb JOIN FETCH bb.batch b JOIN FETCH b.processStage LEFT JOIN FETCH u.taxLabel WHERE u.unitCode = :unitCode")
+    Optional<BottledUnit> findByUnitCodeWithBatch(@Param("unitCode") String unitCode);
+
+    @Query("SELECT u.bottlingBatch.id, u.status, COUNT(u) FROM BottledUnit u WHERE u.bottlingBatch.id IN :batchIds GROUP BY u.bottlingBatch.id, u.status")
+    List<Object[]> countGroupByStatusForBatchIds(@Param("batchIds") Collection<UUID> batchIds);
 }

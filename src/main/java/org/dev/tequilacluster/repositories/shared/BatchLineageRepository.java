@@ -23,4 +23,10 @@ public interface BatchLineageRepository extends JpaRepository<BatchLineage, Batc
 
     @Query("SELECT bl FROM BatchLineage bl WHERE bl.parentBatch.id = :parentBatchId")
     List<BatchLineage> findByParentBatchId(@Param("parentBatchId") UUID parentBatchId);
+
+    @Query("SELECT bl FROM BatchLineage bl JOIN FETCH bl.parentBatch p JOIN FETCH p.processStage JOIN FETCH bl.childBatch c JOIN FETCH c.processStage WHERE bl.childBatch.id IN :childBatchIds")
+    List<BatchLineage> findByChildBatch_IdIn(@Param("childBatchIds") java.util.Collection<UUID> childBatchIds);
+
+    @Query("SELECT bl FROM BatchLineage bl JOIN FETCH bl.parentBatch p JOIN FETCH p.processStage JOIN FETCH bl.childBatch c JOIN FETCH c.processStage WHERE bl.parentBatch.id IN :parentBatchIds")
+    List<BatchLineage> findByParentBatch_IdIn(@Param("parentBatchIds") java.util.Collection<UUID> parentBatchIds);
 }

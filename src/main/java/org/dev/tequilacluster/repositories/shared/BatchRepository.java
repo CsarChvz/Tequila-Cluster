@@ -22,4 +22,13 @@ public interface BatchRepository extends JpaRepository<Batch, UUID> {
     List<Batch> findByStatus(BatchStatus status);
 
     List<Batch> findByCreatedBy_Id(UUID createdByUserId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT b FROM Batch b JOIN FETCH b.processStage WHERE b.traceabilityCode = :traceabilityCode")
+    Optional<Batch> findByTraceabilityCodeWithStage(@org.springframework.data.repository.query.Param("traceabilityCode") String traceabilityCode);
+
+    @org.springframework.data.jpa.repository.Query("SELECT b FROM Batch b JOIN FETCH b.processStage WHERE b.id = :id")
+    Optional<Batch> findByIdWithStage(@org.springframework.data.repository.query.Param("id") UUID id);
+
+    @org.springframework.data.jpa.repository.Query("SELECT b FROM Batch b JOIN FETCH b.processStage WHERE b.id IN :ids")
+    List<Batch> findAllByIdInWithStage(@org.springframework.data.repository.query.Param("ids") java.util.Collection<UUID> ids);
 }

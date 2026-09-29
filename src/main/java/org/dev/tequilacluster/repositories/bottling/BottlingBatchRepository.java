@@ -25,4 +25,10 @@ public interface BottlingBatchRepository extends JpaRepository<BottlingBatch, UU
     List<BottlingBatch> findByCategory_Id(UUID categoryId);
 
     boolean existsByProductionLotNumber(String productionLotNumber);
+
+    @Query("SELECT bb FROM BottlingBatch bb JOIN FETCH bb.brand JOIN FETCH bb.category JOIN FETCH bb.batch b JOIN FETCH b.processStage WHERE bb.id = :id")
+    Optional<BottlingBatch> findWithDetailsById(@Param("id") UUID id);
+
+    @Query("SELECT bb FROM BottlingBatch bb JOIN FETCH bb.brand JOIN FETCH bb.category JOIN FETCH bb.batch b JOIN FETCH b.processStage WHERE bb.id IN :ids")
+    List<BottlingBatch> findWithDetailsByIdIn(@Param("ids") java.util.Collection<UUID> ids);
 }
