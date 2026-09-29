@@ -52,4 +52,9 @@ public interface BottledUnitRepository extends JpaRepository<BottledUnit, UUID> 
 
     @Query("SELECT DISTINCT u.bottlingBatch.id FROM BottledUnit u WHERE u.id IN :ids")
     List<UUID> findDistinctBottlingBatchIdsByUnitIds(@Param("ids") Collection<UUID> ids);
+
+    @Query("SELECT u.status, COUNT(u) FROM BottledUnit u WHERE u.bottlingBatch.id = :bottlingBatchId GROUP BY u.status")
+    List<Object[]> countGroupByStatusForBatch(@Param("bottlingBatchId") UUID bottlingBatchId);
+
+    long countByBottlingBatch_Id(UUID bottlingBatchId);
 }
