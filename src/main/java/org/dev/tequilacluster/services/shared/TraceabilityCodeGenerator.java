@@ -1,6 +1,8 @@
 package org.dev.tequilacluster.services.shared;
 
 import org.dev.tequilacluster.repositories.shared.BatchRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Year;
@@ -15,6 +17,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @Component
 public class TraceabilityCodeGenerator {
 
+    private static final Logger log = LoggerFactory.getLogger(TraceabilityCodeGenerator.class);
     private static final String PREFIX = "TRZ";
 
     private final BatchRepository batchRepository;
@@ -41,6 +44,7 @@ public class TraceabilityCodeGenerator {
                 candidate = "%s-%d-%05d".formatted(PREFIX, cachedYear, next);
             } while (batchRepository.existsByTraceabilityCode(candidate));
 
+            log.debug("Generated traceability code {}", candidate);
             return candidate;
         } finally {
             lock.unlock();

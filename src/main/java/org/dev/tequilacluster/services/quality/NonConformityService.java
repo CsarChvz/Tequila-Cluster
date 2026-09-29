@@ -19,6 +19,8 @@ import org.dev.tequilacluster.repositories.shared.BatchRepository;
 import org.dev.tequilacluster.services.security.StagePermissionService;
 import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.utils.security.StageAction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,8 @@ import java.util.UUID;
  */
 @Service
 public class NonConformityService {
+
+    private static final Logger log = LoggerFactory.getLogger(NonConformityService.class);
 
     private final NonConformityRepository nonConformityRepository;
     private final BatchRepository batchRepository;
@@ -78,6 +82,7 @@ public class NonConformityService {
 
             if (bottledUnit.getBottlingBatch() == null
                     || !batch.getId().equals(bottledUnit.getBottlingBatch().getId())) {
+                log.warn("RB-407: rejected non-conformity — bottled unit {} does not belong to batch {}", request.bottledUnitId(), request.batchId());
                 throw new BusinessRuleViolationException("RB-407",
                         "Bottled unit " + request.bottledUnitId() + " does not belong to the specified batch " + request.batchId());
             }
@@ -105,6 +110,11 @@ public class NonConformityService {
         after.put("title", nonConformity.getTitle());
         auditLogService.record(currentUserId, "CREATE", "non_conformity", nonConformity.getId(), null, toJson(after));
 
+        if (nonConformity.getSeverity() == NonConformitySeverity.CRITICAL) {
+            log.error("CRITICAL non-conformity {} reported on batch {}: {}", nonConformity.getId(), batch.getId(), nonConformity.getTitle());
+        } else {
+            log.info("Non-conformity {} ({}) reported on batch {}: {}", nonConformity.getId(), nonConformity.getSeverity(), batch.getId(), nonConformity.getTitle());
+        }
         return toResponse(nonConformity);
     }
 
@@ -179,6 +189,7 @@ public class NonConformityService {
         NonConformityStatus target = request.status();
 
         if (current == target) {
+            log.warn("RB-407: rejected no-op status update for non-conformity {} (already {})", id, current);
             throw new BusinessRuleViolationException("RB-407",
                     "Non-conformity is already in status: " + current);
         }
@@ -191,6 +202,7 @@ public class NonConformityService {
         };
 
         if (!validTransition) {
+            log.warn("RB-407: rejected invalid non-conformity status transition {} -> {} for {}", current, target, id);
             throw new BusinessRuleViolationException("RB-407",
                     "Invalid status transition from " + current + " to " + target);
         }
@@ -213,6 +225,7 @@ public class NonConformityService {
         after.put("resolvedAt", nonConformity.getResolvedAt() != null ? nonConformity.getResolvedAt().toString() : null);
 
         auditLogService.record(currentUserId, "UPDATE_STATUS", "non_conformity", nonConformity.getId(), toJson(before), toJson(after));
+        log.info("Non-conformity {} status changed {} -> {} by user {}", id, current, target, currentUserId);
 
         return toResponse(nonConformity);
     }

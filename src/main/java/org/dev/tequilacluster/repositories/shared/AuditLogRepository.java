@@ -9,6 +9,9 @@ import java.util.UUID;
 /** FR-42: bitácora general de auditoría, append-only (NFR-10). */
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
 
+    /** FR-42: full activity feed for the auditor dashboard, most recent first. */
+    List<AuditLog> findAllByOrderByOccurredAtDesc(org.springframework.data.domain.Pageable pageable);
+
     List<AuditLog> findByEntityTypeAndEntityIdOrderByOccurredAtDesc(String entityType, UUID entityId);
 
     List<AuditLog> findByUser_IdOrderByOccurredAtDesc(UUID userId);

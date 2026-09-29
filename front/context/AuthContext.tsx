@@ -9,9 +9,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (data: { username: string; email: string; password: string; role: string }) => Promise<void>;
+  register: (data: { username: string; email: string; password: string; roleCode: string }) => Promise<void>;
   logout: () => void;
-  setSimulatedRole: (role: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,11 +20,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Restore session on mount if token exists
+  // Restore session on mount if a real token was saved by a previous login/register — no more
+  // auto-logging in as a fake Administrator when there's no session (that bypassed RBAC
+  // entirely, since the backend never even saw a request).
   useEffect(() => {
     const savedToken = getStoredToken();
     const savedUserJson = localStorage.getItem("tequila_user_data");
-    
+
     if (savedToken && savedUserJson) {
       try {
         setToken(savedToken);
@@ -34,16 +35,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         removeStoredToken();
         localStorage.removeItem("tequila_user_data");
       }
-    } else {
-      // Default initial mock session for easy testing
-      const defaultUser: User = {
-        id: "usr-admin-01",
-        username: "admin.jcuervo",
-        email: "admin@tequilacuervo.com",
-        roles: ["Administrator"],
-      };
-      setUser(defaultUser);
-      setToken("mock-initial-token");
     }
     setIsLoading(false);
   }, []);
@@ -61,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (data: { username: string; email: string; password: string; role: string }) => {
+  const register = async (data: { username: string; email: string; password: string; roleCode: string }) => {
     setIsLoading(true);
     try {
       const res = await authApi.register(data);
@@ -81,14 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("tequila_user_data");
   };
 
-  const setSimulatedRole = (role: string) => {
-    if (user) {
-      const updatedUser = { ...user, roles: [role] };
-      setUser(updatedUser);
-      localStorage.setItem("tequila_user_data", JSON.stringify(updatedUser));
-    }
-  };
-
   return (
     <AuthContext.Provider
       value={{
@@ -99,7 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
-        setSimulatedRole,
       }}
     >
       {children}

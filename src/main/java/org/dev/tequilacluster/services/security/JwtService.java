@@ -2,7 +2,10 @@ package org.dev.tequilacluster.services.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,8 @@ import java.util.stream.Collectors;
 @Service
 public class JwtService {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
+
     private final SecretKey signingKey;
     private final long expirationMinutes;
 
@@ -34,7 +39,7 @@ public class JwtService {
     public String generateToken(UUID userId, String username, Collection<? extends GrantedAuthority> authorities) {
         Instant now = Instant.now();
         List<String> roleCodes = authorities.stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList());
-        return Jwts.builder()
+        String token = Jwts.builder()
                 .subject(username)
                 .claim("userId", userId.toString())
                 .claim("roles", roleCodes)
@@ -42,10 +47,17 @@ public class JwtService {
                 .expiration(java.util.Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
                 .signWith(signingKey)
                 .compact();
+        log.debug("Issued JWT for user {} ({}), roles={}, expires in {} min", username, userId, roleCodes, expirationMinutes);
+        return token;
     }
 
     public Claims parseClaims(String token) {
-        return Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+        try {
+            return Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+        } catch (JwtException e) {
+            log.warn("Rejected invalid/expired JWT: {}", e.getMessage());
+            throw e;
+        }
     }
 
     public String extractUsername(String token) {

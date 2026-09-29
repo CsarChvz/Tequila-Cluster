@@ -2,6 +2,8 @@ package org.dev.tequilacluster.services.bottling;
 
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchCreateRequest;
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchResponse;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelBulkCreateRequest;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelResponse;
 import org.dev.tequilacluster.exceptions.BusinessRuleViolationException;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.models.bottling.BottledUnit;
@@ -40,6 +42,8 @@ import org.dev.tequilacluster.services.shared.AuditLogService;
 import org.dev.tequilacluster.services.shared.BatchLifecycleService;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
 import org.dev.tequilacluster.services.shared.TraceabilityCodeGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +55,8 @@ import java.util.UUID;
 
 @Service
 public class BottlingBatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(BottlingBatchService.class);
 
     private final BatchRepository batchRepository;
     private final BottlingBatchRepository bottlingBatchRepository;
@@ -114,11 +120,13 @@ public class BottlingBatchService {
                 .orElseThrow(() -> NotFoundException.of("DistillationBatch", request.distillationBatchId()));
         Batch parentBatch = distillationBatch.getBatch();
         if (parentBatch.getStatus() != BatchStatus.COMPLETED) {
+            log.warn("RB-301: rejected bottling — source distillation batch {} is not COMPLETED", request.distillationBatchId());
             throw new BusinessRuleViolationException("RB-301", "Source distillation batch is not COMPLETED");
         }
 
         // 2. FR-20 / RB-205
         if (distillationBatch.getReadyForBottlingAt() == null || distillationBatch.getReadyForBottlingAt().isAfter(Instant.now())) {
+            log.warn("RB-205: rejected bottling — distillation batch {} maturation not yet complete", request.distillationBatchId());
             throw new BusinessRuleViolationException("RB-205", "Maturation period not yet complete");
         }
 
@@ -128,6 +136,7 @@ public class BottlingBatchService {
         Integer requiredDays = distillationBatch.getRequiredMaturationDays() != null ? distillationBatch.getRequiredMaturationDays() : 0;
         Integer minDays = category.getMinimumMaturationDays() != null ? category.getMinimumMaturationDays() : 0;
         if (requiredDays < minDays) {
+            log.warn("RB-206: rejected bottling — required maturation days {} below category {} minimum {}", requiredDays, category.getCode(), minDays);
             throw new BusinessRuleViolationException("RB-206", "Required maturation days do not meet category minimum");
         }
 
@@ -142,16 +151,19 @@ public class BottlingBatchService {
 
         // 6. FR-22 / RB-302
         if (request.assignedTaxLabelIds().size() < request.unitsBottled()) {
+            log.warn("RB-302: rejected bottling — {} tax labels assigned for {} units", request.assignedTaxLabelIds().size(), request.unitsBottled());
             throw new BusinessRuleViolationException("RB-302", "Not enough tax labels assigned");
         }
 
         // 7. FR-22 / RB-303
         List<TaxLabel> taxLabels = taxLabelRepository.findAllById(request.assignedTaxLabelIds());
         if (taxLabels.size() != request.assignedTaxLabelIds().size()) {
+            log.warn("RB-303: rejected bottling — one or more tax label ids not found");
             throw new BusinessRuleViolationException("RB-303", "One or more tax labels not found");
         }
         for (TaxLabel label : taxLabels) {
             if (label.getStatus() != TaxLabelStatus.AVAILABLE) {
+                log.warn("RB-303: rejected bottling — tax label {} is not AVAILABLE (status={})", label.getFolio(), label.getStatus());
                 throw new BusinessRuleViolationException("RB-303", "Tax label is not available: " + label.getFolio());
             }
         }
@@ -160,6 +172,7 @@ public class BottlingBatchService {
         List<LabelRequirement> requiredLabels = labelRequirementRepository.findByRequiredTrueAndActiveTrue();
         for (LabelRequirement requirement : requiredLabels) {
             if (!request.labelValues().containsKey(requirement.getId())) {
+                log.warn("RB-305: rejected bottling — missing required label value {}", requirement.getCode());
                 throw new BusinessRuleViolationException("RB-305", "Missing label value for requirement: " + requirement.getCode());
             }
         }
@@ -236,7 +249,7 @@ public class BottlingBatchService {
         // 14. FR-25 / RB-306
         boolean reconciliationWarning = false;
         int expected = request.unitsBottled() + (request.registeredLossesUnits() != null ? request.registeredLossesUnits() : 0);
-        int actual = request.assignedTaxLabelIds().size();
+        int actual = (int) taxLabelRepository.countByBottlingBatchIdAndStatus(batchId, TaxLabelStatus.USED.name());
         if (expected > 0) {
             BigDecimal discrepancy = BigDecimal.valueOf(Math.abs(actual - expected))
                     .divide(BigDecimal.valueOf(expected), 6, RoundingMode.HALF_UP)
@@ -257,6 +270,7 @@ public class BottlingBatchService {
         auditLogService.record(currentUserId, "CREATE", "bottling_batch", batchId, null, null);
 
         // 16.
+        log.info("Bottling batch {} ({}) created: {} units, lot {}", batchId, batch.getTraceabilityCode(), request.unitsBottled(), request.productionLotNumber());
         return getResponse(bb, reconciliationWarning);
     }
 
@@ -276,11 +290,53 @@ public class BottlingBatchService {
         for (LabelRequirement req : requiredLabels) {
             boolean exists = bottlingLabelValueRepository.existsById(new BottlingLabelValueId(batchId, req.getId()));
             if (!exists) {
+                log.warn("RB-307: rejected completion of bottling batch {} — missing label requirement {}", batchId, req.getCode());
                 throw new BusinessRuleViolationException("RB-307", "Missing label requirement: " + req.getCode());
             }
         }
 
         batchLifecycleService.complete(batchId, currentUserId);
+        log.info("Bottling batch {} completed by user {}", batchId, currentUserId);
+    }
+
+    /** Backs the bottling dashboard table — every bottling batch, newest first. */
+    @Transactional(readOnly = true)
+    public List<BottlingBatchResponse> list() {
+        return bottlingBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getBatch().getCreatedAt().compareTo(a.getBatch().getCreatedAt()))
+                .map(bb -> getResponse(bb, false))
+                .toList();
+    }
+
+    /** FR-22: available (or given status) tax labels for the bottling batch creation form. */
+    @Transactional(readOnly = true)
+    public List<TaxLabelResponse> listTaxLabels(String status) {
+        return taxLabelRepository.findByStatus(status).stream()
+                .map(label -> new TaxLabelResponse(label.getId(), label.getFolio(), label.getStatus()))
+                .toList();
+    }
+
+    /**
+     * Administrator-only: bulk-load SAT tax label folios as AVAILABLE. Fiscal marbetes are
+     * supplied externally (out of this project's scope per CLAUDE.md), so this just registers
+     * folios that already exist physically — it never assigns or uses them.
+     */
+    @Transactional
+    public List<TaxLabelResponse> bulkCreateTaxLabels(TaxLabelBulkCreateRequest request) {
+        List<TaxLabel> created = request.folios().stream()
+                .filter(folio -> !taxLabelRepository.existsByFolio(folio))
+                .map(folio -> {
+                    TaxLabel label = new TaxLabel();
+                    label.setFolio(folio);
+                    label.setStatus(TaxLabelStatus.AVAILABLE);
+                    return taxLabelRepository.save(label);
+                })
+                .toList();
+        log.info("Bulk-loaded {} of {} requested tax label folios ({} were duplicates, skipped)",
+                created.size(), request.folios().size(), request.folios().size() - created.size());
+        return created.stream()
+                .map(label -> new TaxLabelResponse(label.getId(), label.getFolio(), label.getStatus()))
+                .toList();
     }
 
     private BottlingBatchResponse getResponse(BottlingBatch bb, boolean reconciliationWarning) {

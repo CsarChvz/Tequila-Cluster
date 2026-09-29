@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Title,
   Text,
@@ -13,146 +13,248 @@ import {
   TextInput,
   NumberInput,
   Select,
+  Checkbox,
   Stack,
   Alert,
   Paper,
   Grid,
-  Checkbox,
   ActionIcon,
   Tooltip,
+  Loader,
+  Center,
+  Divider,
 } from "@mantine/core";
 import {
   IconTruckDelivery,
   IconPlus,
   IconAlertTriangle,
-  IconCheck,
   IconEye,
-  IconFileCheck,
   IconInfoCircle,
+  IconBan,
+  IconFileText,
 } from "@tabler/icons-react";
-import { INITIAL_SHIPMENTS, INITIAL_BOTTLING_BATCHES, Shipment } from "@/lib/mockData";
+import { logisticsApi, bottlingApi, catalogsApi, ShipmentResponse, BottlingBatchResponse } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { canWriteStage } from "@/lib/roles";
 
 export default function LogisticsPage() {
-  const [shipments, setShipments] = useState<Shipment[]>(INITIAL_SHIPMENTS);
+  const { user } = useAuth();
+  const canWrite = canWriteStage(user?.roles || [], "LOGISTICS");
+
+  const [shipments, setShipments] = useState<ShipmentResponse[]>([]);
+  const [completedBottlingBatches, setCompletedBottlingBatches] = useState<BottlingBatchResponse[]>([]);
+  const [carriers, setCarriers] = useState<Array<{ id: string; name: string }>>([]);
+  const [shipmentTypes, setShipmentTypes] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [documentTypes, setDocumentTypes] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
+  const [selectedShipment, setSelectedShipment] = useState<ShipmentResponse | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<ShipmentResponse | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
-  // Form state
-  const [carrier, setCarrier] = useState("Transportes Tequileros del Occidente S.A.");
-  const [driverName, setDriverName] = useState("Carlos Mendoza");
-  const [licensePlate, setLicensePlate] = useState("JV-884-91");
-  const [destination, setDestination] = useState("CEDIS Cuervo Guadalajara - Bodega Central");
-  const [unitsToShip, setUnitsToShip] = useState<number | "">(2400);
-  const [selectedBottlingCode, setSelectedBottlingCode] = useState("TRZ-2026-00301");
+  const [shipmentNumber, setShipmentNumber] = useState("");
+  const [shipmentTypeId, setShipmentTypeId] = useState<string | null>(null);
+  const [carrierId, setCarrierId] = useState<string | null>(null);
+  const [vehicleLicensePlate, setVehicleLicensePlate] = useState("");
+  const [destination, setDestination] = useState("");
+  const [departureAt, setDepartureAt] = useState("");
+  const [estimatedArrivalAt, setEstimatedArrivalAt] = useState("");
+  const [bottlingBatchId, setBottlingBatchId] = useState<string | null>(null);
+  const [quantityUnits, setQuantityUnits] = useState<number | "">("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [docTypeId, setDocTypeId] = useState<string | null>(null);
+  const [docNumber, setDocNumber] = useState("");
+  const [docValid, setDocValid] = useState(true);
+  const [docSubmitting, setDocSubmitting] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
-  const handleCreateShipment = (e: React.FormEvent) => {
+  const selectedBatch = completedBottlingBatches.find((b) => b.batchId === bottlingBatchId);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [shipmentList, bottlingList, carrierList, shipmentTypeList, documentTypeList] = await Promise.all([
+        logisticsApi.list(),
+        bottlingApi.list(),
+        catalogsApi.carriers(),
+        catalogsApi.shipmentTypes(),
+        catalogsApi.documentTypes(),
+      ]);
+      setShipments(shipmentList);
+      setCompletedBottlingBatches(bottlingList.filter((b) => b.status === "COMPLETED" && b.bottledUnitsCreated > 0));
+      setCarriers(carrierList);
+      setShipmentTypes(shipmentTypeList);
+      setDocumentTypes(documentTypeList);
+    } catch (err: any) {
+      setLoadError(err.message || "No se pudo conectar con el backend");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  const resetForm = () => {
+    setShipmentNumber("");
+    setShipmentTypeId(null);
+    setCarrierId(null);
+    setVehicleLicensePlate("");
+    setDestination("");
+    setDepartureAt("");
+    setEstimatedArrivalAt("");
+    setBottlingBatchId(null);
+    setQuantityUnits("");
+    setFormError(null);
+  };
+
+  const handleCreateShipment = async (e: React.FormEvent) => {
     e.preventDefault();
-    setValidationError(null);
+    if (!shipmentTypeId || !carrierId || !bottlingBatchId || quantityUnits === "" || !departureAt || !estimatedArrivalAt) return;
 
-    const units = Number(unitsToShip) || 0;
-
-    // FR-27 / RB-401: Validate units <= available units
-    if (units > 4500) {
-      setValidationError(
-        `Error RB-401: Las unidades a embarcar (${units}) superan las disponibles en el lote de envasado (4,500).`
-      );
+    if (selectedBatch && Number(quantityUnits) > selectedBatch.bottledUnitsCreated) {
+      setFormError(`RB-401: solo hay ${selectedBatch.bottledUnitsCreated} unidades disponibles en ese lote de envasado.`);
       return;
     }
 
-    const nextIdNumber = shipments.length + 501;
-    const newShipment: Shipment = {
-      id: `s-${shipments.length + 1}`,
-      shipmentNumber: `EMB-2026-00${nextIdNumber}`,
-      carrier,
-      driverName,
-      licensePlate,
-      destination,
-      departureDate: "2026-09-26 10:00",
-      estimatedArrivalDate: "2026-09-26 16:00",
-      bottlingBatchCodes: [{ code: selectedBottlingCode, units }],
-      status: "IN_TRANSIT",
-      documentsComplete: true,
-      documentsList: [
-        { name: "Carta Porte Digital SAT (CFDI)", required: true, uploaded: true, valid: true },
-        { name: "Manifiesto de Carga de Alcohol", required: true, uploaded: true, valid: true },
-        { name: "Póliza de Seguro de Transporte", required: true, uploaded: true, valid: true },
-        { name: "Certificado Fitosanitario CRT", required: true, uploaded: true, valid: true },
-      ],
-    };
-
-    setShipments([newShipment, ...shipments]);
-    setModalOpen(false);
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await logisticsApi.create({
+        shipmentNumber,
+        shipmentTypeId,
+        carrierId,
+        vehicleLicensePlate,
+        destination,
+        departureAt: new Date(departureAt).toISOString(),
+        estimatedArrivalAt: new Date(estimatedArrivalAt).toISOString(),
+        items: [{ bottlingBatchId, quantityUnits: Number(quantityUnits) }],
+      });
+      setModalOpen(false);
+      resetForm();
+      await loadAll();
+    } catch (err: any) {
+      setFormError(err.message || "Error al crear el embarque");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleConfirmDelivery = (shipmentId: string) => {
-    setShipments((prev) =>
-      prev.map((s) => (s.id === shipmentId ? { ...s, status: "DELIVERED" } : s))
+  const handleAddDocument = async () => {
+    if (!selectedShipment || !docTypeId) return;
+    setDocSubmitting(true);
+    setDocError(null);
+    try {
+      await logisticsApi.addDocument(selectedShipment.id, {
+        documentTypeId: docTypeId,
+        documentNumber: docNumber || undefined,
+        valid: docValid,
+      });
+      setDocTypeId(null);
+      setDocNumber("");
+      setDocValid(true);
+      const refreshed = await logisticsApi.list();
+      setShipments(refreshed);
+      setSelectedShipment(refreshed.find((s) => s.id === selectedShipment.id) || null);
+    } catch (err: any) {
+      setDocError(err.message || "No se pudo agregar el documento");
+    } finally {
+      setDocSubmitting(false);
+    }
+  };
+
+  const handleStartTransit = async (shipment: ShipmentResponse) => {
+    try {
+      await logisticsApi.startTransit(shipment.id);
+      await loadAll();
+      setDetailModalOpen(false);
+    } catch (err: any) {
+      alert(err.message || "No se puede iniciar tránsito (revisa documentos requeridos, RB-402)");
+    }
+  };
+
+  const handleDeliver = async (shipment: ShipmentResponse) => {
+    try {
+      await logisticsApi.deliver(shipment.id);
+      await loadAll();
+    } catch (err: any) {
+      alert(err.message || "No se pudo confirmar la entrega");
+    }
+  };
+
+  const handleCancelConfirm = async () => {
+    if (!cancelTarget || !cancelReason.trim()) return;
+    try {
+      await logisticsApi.cancel(cancelTarget.id, cancelReason.trim());
+      setCancelTarget(null);
+      setCancelReason("");
+      await loadAll();
+    } catch (err: any) {
+      alert(err.message || "No se pudo cancelar el embarque");
+    }
+  };
+
+  if (loading) {
+    return (
+      <Center style={{ minHeight: 300 }}>
+        <Loader color="orange" />
+      </Center>
     );
-  };
+  }
 
   return (
     <Stack gap="lg">
-      {/* Header & Actions */}
       <Group justify="space-between" align="center">
         <div>
           <Title order={2} style={{ fontFamily: "Playfair Display, serif", color: "#1a252c" }}>
             Etapa 4: Logística y Embarques de Tequila
           </Title>
           <Text size="sm" c="dimmed">
-            Despacho de embarques, validación de Carta Porte SAT, documentos de transporte y confirmación de entrega (FR-26 a FR-32)
+            Despacho de embarques, documentos de transporte y confirmación de entrega (FR-26 a FR-32)
           </Text>
         </div>
-        <Button
-          leftSection={<IconPlus size={18} />}
-          color="orange"
-          radius="md"
-          onClick={() => setModalOpen(true)}
-        >
-          Crear Nuevo Embarque
-        </Button>
+        {canWrite && (
+          <Button leftSection={<IconPlus size={18} />} color="orange" radius="md" onClick={() => setModalOpen(true)}>
+            Crear Nuevo Embarque
+          </Button>
+        )}
       </Group>
 
-      {/* Summary Cards */}
+      {loadError && (
+        <Alert color="red" title="Error de conexión con el backend" icon={<IconAlertTriangle size={18} />}>
+          {loadError}
+        </Alert>
+      )}
+
       <Grid>
         <Grid.Col span={{ base: 12, sm: 4 }}>
           <Paper p="md" radius="md" withBorder style={{ borderLeft: "4px solid #ff6f00" }}>
             <Text size="xs" c="dimmed" fw={700}>EMBARQUES EN TRÁNSITO</Text>
-            <Text size="xl" fw={700} mt="4px">
-              {shipments.filter((s) => s.status === "IN_TRANSIT").length} Activos
-            </Text>
-            <Text size="xs" c="orange" mt="4px">
-              Carta Porte CFDI y CRT Aprobados (FR-29)
-            </Text>
+            <Text size="xl" fw={700} mt="4px">{shipments.filter((s) => s.status === "IN_TRANSIT").length} Activos</Text>
           </Paper>
         </Grid.Col>
-
         <Grid.Col span={{ base: 12, sm: 4 }}>
           <Paper p="md" radius="md" withBorder style={{ borderLeft: "4px solid #209b99" }}>
             <Text size="xs" c="dimmed" fw={700}>ENTREGAS CONFIRMADAS</Text>
-            <Text size="xl" fw={700} mt="4px">
-              {shipments.filter((s) => s.status === "DELIVERED").length} Entregados
-            </Text>
-            <Text size="xs" c="teal" mt="4px">
-              Actualización de inventarios a DELIVERED
-            </Text>
+            <Text size="xl" fw={700} mt="4px">{shipments.filter((s) => s.status === "DELIVERED").length} Entregados</Text>
           </Paper>
         </Grid.Col>
-
         <Grid.Col span={{ base: 12, sm: 4 }}>
           <Paper p="md" radius="md" withBorder style={{ borderLeft: "4px solid #ffb300" }}>
-            <Text size="xs" c="dimmed" fw={700}>CUMPLIMIENTO DE DOCUMENTOS</Text>
-            <Text size="xl" fw={700} mt="4px">100% Válidos</Text>
-            <Text size="xs" c="dimmed" mt="4px">
-              Bloqueo automático si falta documento (RB-402)
-            </Text>
+            <Text size="xs" c="dimmed" fw={700}>PLANIFICADOS PENDIENTES DE DOCUMENTOS</Text>
+            <Text size="xl" fw={700} mt="4px">{shipments.filter((s) => s.status === "PLANNED").length}</Text>
+            <Text size="xs" c="dimmed" mt="4px">Bloqueo automático si falta documento (RB-402)</Text>
           </Paper>
         </Grid.Col>
       </Grid>
 
-      {/* Shipments Table */}
       <Card withBorder radius="md" p="md" shadow="xs">
         <Group justify="space-between" mb="md">
           <Title order={4}>Registro de Embarques de Salida</Title>
@@ -164,10 +266,10 @@ export default function LogisticsPage() {
             <Table.Tr>
               <Table.Th>N° Embarque</Table.Th>
               <Table.Th>Lotes Embotellados Incluidos</Table.Th>
-              <Table.Th>Transportista y Conductor</Table.Th>
-              <Table.Th>Placas / Unidad</Table.Th>
+              <Table.Th>Transportista</Table.Th>
+              <Table.Th>Placas</Table.Th>
               <Table.Th>Destino</Table.Th>
-              <Table.Th>Documentos SAT</Table.Th>
+              <Table.Th>Documentos</Table.Th>
               <Table.Th>Estado</Table.Th>
               <Table.Th>Acciones</Table.Th>
             </Table.Tr>
@@ -176,65 +278,42 @@ export default function LogisticsPage() {
             {shipments.map((s) => (
               <Table.Tr key={s.id}>
                 <Table.Td>
-                  <Text fw={700} size="sm" c="orange.9">
-                    {s.shipmentNumber}
-                  </Text>
-                  <Text size="11px" c="dimmed">Salida: {s.departureDate}</Text>
+                  <Text fw={700} size="sm" c="orange.9">{s.shipmentNumber}</Text>
+                  <Text size="11px" c="dimmed">Salida: {new Date(s.departureAt).toLocaleString()}</Text>
                 </Table.Td>
                 <Table.Td>
-                  {s.bottlingBatchCodes.map((b) => (
-                    <Badge key={b.code} color="cyan" variant="light" size="xs">
-                      {b.code} ({b.units.toLocaleString()} botellas)
+                  {s.items.map((it) => (
+                    <Badge key={it.bottlingBatchId} color="cyan" variant="light" size="xs">
+                      {it.traceabilityCode} ({it.quantityUnits.toLocaleString()} botellas)
                     </Badge>
                   ))}
                 </Table.Td>
+                <Table.Td><Text size="xs" fw={700}>{s.carrierName}</Text></Table.Td>
+                <Table.Td><Badge color="gray" size="xs">{s.vehicleLicensePlate}</Badge></Table.Td>
+                <Table.Td><Text size="xs">{s.destination}</Text></Table.Td>
+                <Table.Td><Badge color={s.documents.length > 0 ? "green" : "red"} size="xs">{s.documents.length} documento(s)</Badge></Table.Td>
                 <Table.Td>
-                  <Text size="xs" fw={700}>{s.carrier}</Text>
-                  <Text size="xs" c="dimmed">Chofer: {s.driverName}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Badge color="gray" size="xs">{s.licensePlate}</Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="xs">{s.destination}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Badge color={s.documentsComplete ? "green" : "red"} size="xs">
-                    {s.documentsComplete ? "✓ Carta Porte & CRT" : "Pendiente"}
-                  </Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Badge
-                    color={s.status === "DELIVERED" ? "green" : s.status === "IN_TRANSIT" ? "orange" : "blue"}
-                    size="sm"
-                  >
+                  <Badge color={s.status === "DELIVERED" ? "green" : s.status === "IN_TRANSIT" ? "orange" : s.status === "CANCELLED" ? "red" : "blue"} size="sm">
                     {s.status}
                   </Badge>
                 </Table.Td>
                 <Table.Td>
                   <Group gap="xs">
-                    {s.status === "IN_TRANSIT" && (
-                      <Button
-                        size="xs"
-                        color="teal"
-                        variant="light"
-                        onClick={() => handleConfirmDelivery(s.id)}
-                      >
-                        Confirmar Entrega
-                      </Button>
+                    {canWrite && s.status === "IN_TRANSIT" && (
+                      <Button size="xs" color="teal" variant="light" onClick={() => handleDeliver(s)}>Confirmar Entrega</Button>
                     )}
-                    <Tooltip label="Ver documentos de transporte">
-                      <ActionIcon
-                        variant="light"
-                        color="orange"
-                        onClick={() => {
-                          setSelectedShipment(s);
-                          setDetailModalOpen(true);
-                        }}
-                      >
+                    <Tooltip label="Ver / agregar documentos">
+                      <ActionIcon variant="light" color="orange" onClick={() => { setSelectedShipment(s); setDetailModalOpen(true); }}>
                         <IconEye size={16} />
                       </ActionIcon>
                     </Tooltip>
+                    {canWrite && s.status === "PLANNED" && (
+                      <Tooltip label="Cancelar embarque">
+                        <ActionIcon variant="light" color="red" onClick={() => setCancelTarget(s)}>
+                          <IconBan size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
                   </Group>
                 </Table.Td>
               </Table.Tr>
@@ -243,126 +322,129 @@ export default function LogisticsPage() {
         </Table>
       </Card>
 
-      {/* Modal to Create Shipment */}
       <Modal
         opened={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={
-          <Group gap="xs">
-            <IconTruckDelivery color="#ff6f00" size={20} />
-            <Text fw={700}>Crear Nuevo Embarque (FR-26 / FR-28)</Text>
-          </Group>
-        }
+        onClose={() => { setModalOpen(false); resetForm(); }}
+        title={<Group gap="xs"><IconTruckDelivery color="#ff6f00" size={20} /><Text fw={700}>Crear Nuevo Embarque (FR-26 / FR-28)</Text></Group>}
         size="lg"
         radius="md"
       >
         <form onSubmit={handleCreateShipment}>
           <Stack gap="sm">
             <Alert color="orange" title="Regla de Salida RB-402" icon={<IconInfoCircle size={18} />}>
-              El embarque no podrá salir del estado <b>PLANNED</b> a <b>IN_TRANSIT</b> sin tener cargados y validados todos los documentos normativos (Carta Porte SAT y Manifiesto CRT).
+              El embarque se crea en estado <b>PLANNED</b>. No podrá pasar a <b>IN_TRANSIT</b> sin todos los documentos requeridos por su tipo de embarque, agregados y válidos.
             </Alert>
 
-            {validationError && (
-              <Alert color="red" title="Error de Capacidad RB-401" icon={<IconAlertTriangle size={18} />}>
-                {validationError}
-              </Alert>
-            )}
+            {formError && <Alert color="red" title="Error" icon={<IconAlertTriangle size={18} />}>{formError}</Alert>}
+
+            <TextInput label="Número de Embarque (único)" value={shipmentNumber} onChange={(e) => setShipmentNumber(e.currentTarget.value)} required />
 
             <Select
-              label="Lote de Envasado Apto (COMPLETED)"
-              data={INITIAL_BOTTLING_BATCHES.map((b) => ({
-                value: b.traceabilityCode,
-                label: `${b.traceabilityCode} - ${b.brand} (${b.unitsBottled.toLocaleString()} botellas disponibles)`,
+              label="Lote de Envasado (COMPLETED, con unidades disponibles)"
+              data={completedBottlingBatches.map((b) => ({
+                value: b.batchId,
+                label: `${b.traceabilityCode} — ${b.brandName} (${b.bottledUnitsCreated.toLocaleString()} disponibles)`,
               }))}
-              value={selectedBottlingCode}
-              onChange={(val) => setSelectedBottlingCode(val || "")}
+              value={bottlingBatchId}
+              onChange={setBottlingBatchId}
+              searchable
               required
             />
 
             <NumberInput
               label="Unidades a Asignar a este Embarque"
-              value={unitsToShip}
-              onChange={(val) => setUnitsToShip(val === "" ? "" : Number(val))}
+              value={quantityUnits}
+              onChange={(val) => setQuantityUnits(val === "" ? "" : Number(val))}
               min={1}
-              required
-            />
-
-            <TextInput
-              label="Empresa Transportista Autorizada"
-              value={carrier}
-              onChange={(e) => setCarrier(e.currentTarget.value)}
+              max={selectedBatch?.bottledUnitsCreated}
               required
             />
 
             <Grid>
               <Grid.Col span={6}>
-                <TextInput
-                  label="Nombre del Conductor"
-                  value={driverName}
-                  onChange={(e) => setDriverName(e.currentTarget.value)}
-                  required
-                />
+                <Select label="Tipo de Embarque" data={shipmentTypes.map((t) => ({ value: t.id, label: t.name }))} value={shipmentTypeId} onChange={setShipmentTypeId} required />
               </Grid.Col>
               <Grid.Col span={6}>
-                <TextInput
-                  label="Placas del Vehículo / Remolque"
-                  value={licensePlate}
-                  onChange={(e) => setLicensePlate(e.currentTarget.value)}
-                  required
-                />
+                <Select label="Transportista" data={carriers.map((c) => ({ value: c.id, label: c.name }))} value={carrierId} onChange={setCarrierId} searchable required />
               </Grid.Col>
             </Grid>
 
-            <TextInput
-              label="Destino Final / CEDIS"
-              value={destination}
-              onChange={(e) => setDestination(e.currentTarget.value)}
-              required
-            />
+            <TextInput label="Placas del Vehículo / Remolque" value={vehicleLicensePlate} onChange={(e) => setVehicleLicensePlate(e.currentTarget.value)} required />
+            <TextInput label="Destino Final / CEDIS" value={destination} onChange={(e) => setDestination(e.currentTarget.value)} required />
+
+            <Grid>
+              <Grid.Col span={6}>
+                <TextInput type="datetime-local" label="Fecha/Hora de Salida" value={departureAt} onChange={(e) => setDepartureAt(e.currentTarget.value)} required />
+              </Grid.Col>
+              <Grid.Col span={6}>
+                <TextInput type="datetime-local" label="Llegada Estimada" value={estimatedArrivalAt} onChange={(e) => setEstimatedArrivalAt(e.currentTarget.value)} required />
+              </Grid.Col>
+            </Grid>
 
             <Group justify="flex-end" mt="md">
-              <Button variant="outline" onClick={() => setModalOpen(false)}>
-                Cancelar
-              </Button>
-              <Button color="orange" type="submit">
-                Crear Embarque y Generar Documentos
-              </Button>
+              <Button variant="outline" onClick={() => { setModalOpen(false); resetForm(); }}>Cancelar</Button>
+              <Button color="orange" type="submit" loading={submitting}>Crear Embarque</Button>
             </Group>
           </Stack>
         </form>
       </Modal>
 
-      {/* Shipment Detail Modal */}
       {selectedShipment && (
-        <Modal
-          opened={detailModalOpen}
-          onClose={() => setDetailModalOpen(false)}
-          title={`Documentos del Embarque: ${selectedShipment.shipmentNumber}`}
-          size="md"
-        >
+        <Modal opened={detailModalOpen} onClose={() => setDetailModalOpen(false)} title={`Documentos del Embarque: ${selectedShipment.shipmentNumber}`} size="md">
           <Stack gap="sm">
-            <Text size="xs"><b>Transportista:</b> {selectedShipment.carrier}</Text>
-            <Text size="xs"><b>Chofer / Placas:</b> {selectedShipment.driverName} ({selectedShipment.licensePlate})</Text>
+            <Text size="xs"><b>Transportista:</b> {selectedShipment.carrierName}</Text>
+            <Text size="xs"><b>Placas:</b> {selectedShipment.vehicleLicensePlate}</Text>
             <Text size="xs"><b>Destino:</b> {selectedShipment.destination}</Text>
+            <Text size="xs"><b>Estado:</b> {selectedShipment.status}</Text>
 
-            <Text size="xs" fw={700} mt="xs">Documentación de Transporte Requerida (RB-402):</Text>
-            {selectedShipment.documentsList.map((doc, idx) => (
-              <Paper key={idx} p="xs" radius="sm" withBorder bg="gray.0">
+            <Text size="xs" fw={700} mt="xs">Documentos cargados (RB-402):</Text>
+            {selectedShipment.documents.length === 0 && <Text size="xs" c="dimmed">Sin documentos cargados aún.</Text>}
+            {selectedShipment.documents.map((doc) => (
+              <Paper key={doc.id} p="xs" radius="sm" withBorder bg="gray.0">
                 <Group justify="space-between">
-                  <Text size="xs">{doc.name}</Text>
-                  <Badge color={doc.valid ? "green" : "red"} size="xs">
-                    {doc.valid ? "✓ VÁLIDO" : "PENDIENTE"}
-                  </Badge>
+                  <Text size="xs">{doc.documentTypeName} {doc.documentNumber ? `— ${doc.documentNumber}` : ""}</Text>
+                  <Badge color={doc.valid ? "green" : "red"} size="xs">{doc.valid ? "✓ VÁLIDO" : "NO VÁLIDO"}</Badge>
                 </Group>
               </Paper>
             ))}
 
-            <Button mt="md" color="orange" fullWidth onClick={() => setDetailModalOpen(false)}>
-              Cerrar Vista de Documentos
-            </Button>
+            {canWrite && selectedShipment.status === "PLANNED" && (
+              <Card withBorder padding="sm" radius="md" mt="xs">
+                <Text size="xs" fw={700} mb="xs">Agregar documento</Text>
+                {docError && <Alert color="red" mb="xs">{docError}</Alert>}
+                <Stack gap="xs">
+                  <Select label="Tipo de documento" data={documentTypes.map((d) => ({ value: d.id, label: d.name }))} value={docTypeId} onChange={setDocTypeId} />
+                  <TextInput label="Número / folio (opcional)" value={docNumber} onChange={(e) => setDocNumber(e.currentTarget.value)} />
+                  <Checkbox label="Documento válido" checked={docValid} onChange={(e) => setDocValid(e.currentTarget.checked)} />
+                  <Button size="xs" leftSection={<IconFileText size={14} />} onClick={handleAddDocument} loading={docSubmitting} disabled={!docTypeId}>
+                    Agregar documento
+                  </Button>
+                </Stack>
+              </Card>
+            )}
+
+            {canWrite && selectedShipment.status === "PLANNED" && (
+              <Button mt="sm" color="green" fullWidth onClick={() => handleStartTransit(selectedShipment)}>
+                Iniciar Tránsito
+              </Button>
+            )}
+
+            <Divider my="xs" />
+            <Button color="orange" fullWidth onClick={() => setDetailModalOpen(false)}>Cerrar</Button>
           </Stack>
         </Modal>
       )}
+
+      <Modal opened={!!cancelTarget} onClose={() => setCancelTarget(null)} title="Cancelar embarque (RB-503)" size="sm">
+        <Stack gap="sm">
+          <Text size="sm">Cancelar <b>{cancelTarget?.shipmentNumber}</b>. Esta acción requiere una razón y queda registrada permanentemente.</Text>
+          <TextInput label="Razón de cancelación" value={cancelReason} onChange={(e) => setCancelReason(e.currentTarget.value)} required />
+          <Group justify="flex-end">
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>Volver</Button>
+            <Button color="red" onClick={handleCancelConfirm} disabled={!cancelReason.trim()}>Confirmar cancelación</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

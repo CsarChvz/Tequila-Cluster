@@ -17,6 +17,8 @@ import org.dev.tequilacluster.repositories.shared.ProcessAlertRepository;
 import org.dev.tequilacluster.services.security.StagePermissionService;
 import org.dev.tequilacluster.utils.security.StageAction;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,8 @@ import java.util.UUID;
  */
 @Service
 public class AlertService {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertService.class);
 
     private final ProcessAlertRepository processAlertRepository;
     private final BatchRepository batchRepository;
@@ -70,7 +74,9 @@ public class AlertService {
         alert.setSeverity(severity);
         alert.setMessage(message);
         alert.setDetectedAt(Instant.now());
-        return processAlertRepository.save(alert);
+        ProcessAlert saved = processAlertRepository.save(alert);
+        logRaised(severity, "batch", batchId, alertType, message);
+        return saved;
     }
 
     public ProcessAlert raiseForShipment(UUID shipmentId, String alertType, AlertSeverity severity, String message) {
@@ -80,7 +86,20 @@ public class AlertService {
         alert.setSeverity(severity);
         alert.setMessage(message);
         alert.setDetectedAt(Instant.now());
-        return processAlertRepository.save(alert);
+        ProcessAlert saved = processAlertRepository.save(alert);
+        logRaised(severity, "shipment", shipmentId, alertType, message);
+        return saved;
+    }
+
+    /** CRITICAL alerts block RB-001 completion, so they're worth an ERROR-level line to stand out in docker logs. */
+    private void logRaised(AlertSeverity severity, String entityType, UUID entityId, String alertType, String message) {
+        if (severity == AlertSeverity.CRITICAL) {
+            log.error("CRITICAL alert [{}] raised on {} {}: {}", alertType, entityType, entityId, message);
+        } else if (severity == AlertSeverity.WARNING) {
+            log.warn("WARNING alert [{}] raised on {} {}: {}", alertType, entityType, entityId, message);
+        } else {
+            log.info("Alert [{}] raised on {} {}: {}", alertType, entityType, entityId, message);
+        }
     }
 
     /**
@@ -96,6 +115,7 @@ public class AlertService {
     ) {
         Set<String> allowedStages = stagePermissionService.getAllowedStages(roleCodes, StageAction.VIEW);
         if (allowedStages.isEmpty()) {
+            log.debug("Alert list requested by roles {} with no VIEW access to any stage — returning empty", roleCodes);
             return List.of();
         }
 
@@ -145,6 +165,7 @@ public class AlertService {
                 .orElseThrow(() -> NotFoundException.of("ProcessAlert", alertId));
 
         if (alert.getResolvedAt() != null) {
+            log.warn("Rejected duplicate resolve attempt on already-resolved alert {}", alertId);
             throw new BusinessRuleViolationException("RB-203", "Process alert is already resolved");
         }
 
@@ -193,6 +214,7 @@ public class AlertService {
         after.put("resolvedBy", resolver != null ? resolver.getUsername() : null);
 
         auditLogService.record(resolvedByUserId, "RESOLVE_ALERT", "process_alert", saved.getId(), toJson(before), toJson(after));
+        log.info("Alert {} resolved by user {}", saved.getId(), resolvedByUserId);
 
         return saved;
     }
