@@ -8,6 +8,8 @@ import org.dev.tequilacluster.utils.security.StageAction;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Enforces RB-504: a role acts on a stage only for the actions (view/create/update/complete)
@@ -37,6 +39,24 @@ public class StagePermissionService {
         if (!isAllowed(roleCodes, stageCode, action)) {
             throw new ForbiddenStageActionException(stageCode, action.name());
         }
+    }
+
+    public Set<String> getAllowedStages(List<String> roleCodes, StageAction action) {
+        if (roleCodes == null || roleCodes.isEmpty()) {
+            return Set.of();
+        }
+        return roleCodes.stream()
+                .flatMap(roleCode -> roleRepository.findByCode(roleCode).stream())
+                .map(Role::getId)
+                .flatMap(roleId -> roleStagePermissionRepository.findByIdRoleId(roleId).stream())
+                .filter(permission -> switch (action) {
+                    case VIEW -> Boolean.TRUE.equals(permission.getCanView());
+                    case CREATE -> Boolean.TRUE.equals(permission.getCanCreate());
+                    case UPDATE -> Boolean.TRUE.equals(permission.getCanUpdate());
+                    case COMPLETE -> Boolean.TRUE.equals(permission.getCanComplete());
+                })
+                .map(permission -> permission.getId().getStageCode())
+                .collect(Collectors.toSet());
     }
 
     private boolean roleAllows(String roleCode, String stageCode, StageAction action) {
