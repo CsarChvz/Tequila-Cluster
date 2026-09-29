@@ -207,6 +207,15 @@ public class DistillationBatchService {
         batchLifecycleService.complete(batchId, currentUserId);
     }
 
+    /** Backs the distillation dashboard table — every distillation batch, newest first. */
+    @Transactional(readOnly = true)
+    public List<DistillationBatchResponse> list() {
+        return distillationBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getBatch().getCreatedAt().compareTo(a.getBatch().getCreatedAt()))
+                .map(db -> toResponse(db.getBatch(), db, getSourceCodes(db.getBatch().getId())))
+                .toList();
+    }
+
     private void checkRange(String stageCode, String paramCode, BigDecimal value, UUID batchId, AlertSeverity severity, String msgTemplate) {
         validationRuleRepository.findByProcessStageCodeAndParameterCodeAndActiveTrue(stageCode, paramCode)
                 .ifPresent(rule -> {

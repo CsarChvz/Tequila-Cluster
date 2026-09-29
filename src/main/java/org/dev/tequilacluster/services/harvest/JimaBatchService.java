@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -156,6 +157,20 @@ public class JimaBatchService {
         boolean capacityWarning = plantMaxCapacityKg != null
                 && jimaBatch.getTotalWeightKg().compareTo(plantMaxCapacityKg) > 0;
         return toResponse(jimaBatch.getBatch(), jimaBatch, permit, capacityWarning);
+    }
+
+    /** Backs the harvest dashboard table — every harvest batch, newest first. */
+    @Transactional(readOnly = true)
+    public List<JimaBatchResponse> list() {
+        return jimaBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getBatch().getCreatedAt().compareTo(a.getBatch().getCreatedAt()))
+                .map(jimaBatch -> {
+                    TransportPermit permit = transportPermitRepository.findByJimaBatch_BatchId(jimaBatch.getBatch().getId()).orElse(null);
+                    boolean capacityWarning = plantMaxCapacityKg != null
+                            && jimaBatch.getTotalWeightKg().compareTo(plantMaxCapacityKg) > 0;
+                    return toResponse(jimaBatch.getBatch(), jimaBatch, permit, capacityWarning);
+                })
+                .toList();
     }
 
     private void assertAuthorizedAreaIsValid(AuthorizedProductionArea area) {

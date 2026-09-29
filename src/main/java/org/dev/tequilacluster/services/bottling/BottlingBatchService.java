@@ -2,6 +2,8 @@ package org.dev.tequilacluster.services.bottling;
 
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchCreateRequest;
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchResponse;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelBulkCreateRequest;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelResponse;
 import org.dev.tequilacluster.exceptions.BusinessRuleViolationException;
 import org.dev.tequilacluster.exceptions.NotFoundException;
 import org.dev.tequilacluster.models.bottling.BottledUnit;
@@ -236,7 +238,7 @@ public class BottlingBatchService {
         // 14. FR-25 / RB-306
         boolean reconciliationWarning = false;
         int expected = request.unitsBottled() + (request.registeredLossesUnits() != null ? request.registeredLossesUnits() : 0);
-        int actual = request.assignedTaxLabelIds().size();
+        int actual = (int) taxLabelRepository.countByBottlingBatchIdAndStatus(batchId, TaxLabelStatus.USED.name());
         if (expected > 0) {
             BigDecimal discrepancy = BigDecimal.valueOf(Math.abs(actual - expected))
                     .divide(BigDecimal.valueOf(expected), 6, RoundingMode.HALF_UP)
@@ -281,6 +283,44 @@ public class BottlingBatchService {
         }
 
         batchLifecycleService.complete(batchId, currentUserId);
+    }
+
+    /** Backs the bottling dashboard table — every bottling batch, newest first. */
+    @Transactional(readOnly = true)
+    public List<BottlingBatchResponse> list() {
+        return bottlingBatchRepository.findAll().stream()
+                .sorted((a, b) -> b.getBatch().getCreatedAt().compareTo(a.getBatch().getCreatedAt()))
+                .map(bb -> getResponse(bb, false))
+                .toList();
+    }
+
+    /** FR-22: available (or given status) tax labels for the bottling batch creation form. */
+    @Transactional(readOnly = true)
+    public List<TaxLabelResponse> listTaxLabels(String status) {
+        return taxLabelRepository.findByStatus(status).stream()
+                .map(label -> new TaxLabelResponse(label.getId(), label.getFolio(), label.getStatus()))
+                .toList();
+    }
+
+    /**
+     * Administrator-only: bulk-load SAT tax label folios as AVAILABLE. Fiscal marbetes are
+     * supplied externally (out of this project's scope per CLAUDE.md), so this just registers
+     * folios that already exist physically — it never assigns or uses them.
+     */
+    @Transactional
+    public List<TaxLabelResponse> bulkCreateTaxLabels(TaxLabelBulkCreateRequest request) {
+        List<TaxLabel> created = request.folios().stream()
+                .filter(folio -> !taxLabelRepository.existsByFolio(folio))
+                .map(folio -> {
+                    TaxLabel label = new TaxLabel();
+                    label.setFolio(folio);
+                    label.setStatus(TaxLabelStatus.AVAILABLE);
+                    return taxLabelRepository.save(label);
+                })
+                .toList();
+        return created.stream()
+                .map(label -> new TaxLabelResponse(label.getId(), label.getFolio(), label.getStatus()))
+                .toList();
     }
 
     private BottlingBatchResponse getResponse(BottlingBatch bb, boolean reconciliationWarning) {

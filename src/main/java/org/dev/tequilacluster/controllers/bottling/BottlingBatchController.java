@@ -3,6 +3,8 @@ package org.dev.tequilacluster.controllers.bottling;
 import jakarta.validation.Valid;
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchCreateRequest;
 import org.dev.tequilacluster.dtos.bottling.BottlingBatchResponse;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelBulkCreateRequest;
+import org.dev.tequilacluster.dtos.bottling.TaxLabelResponse;
 import org.dev.tequilacluster.dtos.shared.CancelRequest;
 import org.dev.tequilacluster.services.bottling.BottlingBatchService;
 import org.dev.tequilacluster.services.security.StagePermissionService;
@@ -12,9 +14,11 @@ import org.dev.tequilacluster.utils.security.StageAction;
 import org.dev.tequilacluster.utils.shared.ProcessStageCodes;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -46,6 +50,27 @@ public class BottlingBatchController {
                                                       @AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.BOTTLING, StageAction.VIEW);
         return ResponseEntity.ok(bottlingBatchService.get(batchId));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<BottlingBatchResponse>> list(@AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.BOTTLING, StageAction.VIEW);
+        return ResponseEntity.ok(bottlingBatchService.list());
+    }
+
+    @GetMapping("/tax-labels")
+    public ResponseEntity<List<TaxLabelResponse>> listTaxLabels(
+            @RequestParam(required = false, defaultValue = "AVAILABLE") String status,
+            @AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.BOTTLING, StageAction.VIEW);
+        return ResponseEntity.ok(bottlingBatchService.listTaxLabels(status));
+    }
+
+    /** Administrator-only: bulk-load SAT tax label folios (fiscal marbetes supplied externally). */
+    @PostMapping("/tax-labels/bulk")
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
+    public ResponseEntity<List<TaxLabelResponse>> bulkCreateTaxLabels(@Valid @RequestBody TaxLabelBulkCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(bottlingBatchService.bulkCreateTaxLabels(request));
     }
 
     @PostMapping("/{batchId}/complete")

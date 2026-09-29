@@ -12,10 +12,13 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-/** FR-04: Administrator-only supplier catalog CRUD. */
+/**
+ * FR-04: supplier catalog CRUD. Read (list/get) is open to any authenticated role — every
+ * stage's create form needs to read reference catalogs (RB-504 already requires login via
+ * SecurityConfig). Only create/update/deactivate are Administrator-only.
+ */
 @RestController
 @RequestMapping("/api/v1/catalogs/suppliers")
-@PreAuthorize("hasRole('ADMINISTRATOR')")
 public class SupplierController {
 
     private final SupplierService supplierService;
@@ -35,16 +38,19 @@ public class SupplierController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     public ResponseEntity<SupplierResponse> create(@Valid @RequestBody SupplierRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(supplierService.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     public SupplierResponse update(@PathVariable UUID id, @Valid @RequestBody SupplierRequest request) {
         return supplierService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     public ResponseEntity<Void> deactivate(@PathVariable UUID id) {
         supplierService.deactivate(id);
         return ResponseEntity.noContent().build();

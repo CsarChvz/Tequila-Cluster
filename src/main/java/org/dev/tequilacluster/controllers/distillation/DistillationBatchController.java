@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -48,6 +49,12 @@ public class DistillationBatchController {
                                                           @AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.DISTILLATION, StageAction.VIEW);
         return ResponseEntity.ok(distillationBatchService.get(batchId));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<DistillationBatchResponse>> list(@AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.DISTILLATION, StageAction.VIEW);
+        return ResponseEntity.ok(distillationBatchService.list());
     }
 
     @PostMapping("/{batchId}/complete")

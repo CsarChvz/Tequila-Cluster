@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 /** FR-05 to FR-11: harvest (Jima) batches. Reference controller — replicate this shape for the other stages. */
@@ -49,6 +50,12 @@ public class JimaBatchController {
                                                   @AuthenticationPrincipal AppUserPrincipal principal) {
         stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.HARVEST, StageAction.VIEW);
         return ResponseEntity.ok(jimaBatchService.get(batchId));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<JimaBatchResponse>> list(@AuthenticationPrincipal AppUserPrincipal principal) {
+        stagePermissionService.assertAllowed(principal.getRoleCodes(), ProcessStageCodes.HARVEST, StageAction.VIEW);
+        return ResponseEntity.ok(jimaBatchService.list());
     }
 
     @PostMapping("/{batchId}/complete")

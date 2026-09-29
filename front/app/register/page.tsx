@@ -37,7 +37,7 @@ export default function RegisterPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("Jima Operator");
+  const [roleCode, setRoleCode] = useState("JIMA_OPERATOR");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -47,7 +47,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register({ username, email, password, role });
+      await register({ username, email, password, roleCode });
       router.push("/");
     } catch (err: any) {
       setError(err.message || "Error al registrar usuario");
@@ -123,16 +123,16 @@ export default function RegisterPage() {
 
               <Select
                 label="Rol / Permiso Solicitado (RBAC)"
+                description="El rol Administrator solo lo asigna otro Administrator (FR-04) — no se puede autoasignar aquí"
                 data={[
-                  "Jima Operator",
-                  "Distillation Operator",
-                  "Bottling Operator",
-                  "Logistics Operator",
-                  "Auditor",
-                  "Administrator",
+                  { value: "JIMA_OPERATOR", label: "Jima Operator" },
+                  { value: "DISTILLATION_OPERATOR", label: "Distillation Operator" },
+                  { value: "BOTTLING_OPERATOR", label: "Bottling Operator" },
+                  { value: "LOGISTICS_OPERATOR", label: "Logistics Operator" },
+                  { value: "AUDITOR", label: "Auditor" },
                 ]}
-                value={role}
-                onChange={(val) => setRole(val || "Jima Operator")}
+                value={roleCode}
+                onChange={(val) => setRoleCode(val || "JIMA_OPERATOR")}
                 required
               />
 

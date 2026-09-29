@@ -15,6 +15,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.dev.tequilacluster.models.security.AppUser;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -47,9 +49,17 @@ public class AuditLog {
     @Column(name = "entity_id")
     private UUID entityId;
 
+    /**
+     * @JdbcTypeCode(SqlTypes.JSON) tells Hibernate to bind this String parameter as jsonb, not
+     * varchar — without it, Postgres rejects every insert (even a null one) with "column
+     * ... is of type jsonb but expression is of type character varying", which blocked every
+     * create action in the app (AuditLogService.record runs on every batch creation).
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "before_data", columnDefinition = "jsonb")
     private String beforeData;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "after_data", columnDefinition = "jsonb")
     private String afterData;
 
